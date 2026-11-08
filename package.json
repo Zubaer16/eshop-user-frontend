@@ -1,5 +1,5 @@
 {
-  "name": "kookaburra-storefront",
+  "name": "eshop-user-frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test:auth": "node --test tests/api-runtime.test.mjs tests/session-server.test.mjs",
     "typecheck": "tsc --noEmit",
     "verify": "node scripts/verify-project.mjs && node scripts/verify-international.mjs",
     "audit:prod": "npm audit --omit=dev",
@@ -17,7 +18,8 @@
     "test:e2e:report": "playwright show-report",
     "verify:e2e": "node scripts/verify-e2e.mjs",
     "verify:usd-e2e": "node scripts/verify-usd-e2e.mjs",
-    "verify:compatibility": "node scripts/verify-compatibility.mjs"
+    "verify:compatibility": "node scripts/verify-compatibility.mjs",
+    "test:unit": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.14",

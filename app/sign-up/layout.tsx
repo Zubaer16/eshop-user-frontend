@@ -4,8 +4,7 @@ import type { ReactNode } from 'react'
 // Frontend-only screen: do not index or imply a live commerce service.
 export const metadata: Metadata = {
   title: 'Create Account Preview',
-  description:
-    'Kookaburra account registration design preview. Registration is disabled.',
+  description: 'Create your eShop customer account with email and password.',
   robots: { index: false, follow: false },
 }
 

@@ -78,7 +78,7 @@ const englishCopy = {
   highlight1: 'Made for discovery',
   highlight1Desc: 'Explore everyday categories',
   highlight2: 'One trusted store',
-  highlight2Desc: 'Curated by Kookaburra',
+  highlight2Desc: 'Curated by eShop',
   highlight3: 'Made for global discovery',
   highlight3Desc: 'USD prices across destinations',
   categoryEyebrow: 'FIND YOUR THING',

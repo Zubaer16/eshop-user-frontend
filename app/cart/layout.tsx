@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 export const metadata: Metadata = {
   title: 'Shopping Cart Preview',
   description:
-    'Review items saved in your Kookaburra preview cart. No orders are processed.',
+    'Review items saved in your eShop preview cart. No orders are processed.',
   robots: { index: false, follow: false },
 }
 

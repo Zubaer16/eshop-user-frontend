@@ -1,10 +1,13 @@
 import type { Metadata } from 'next'
 import { ShopClient } from '@/components/store/shop-client'
+import { LiveShop } from '@/components/catalog/catalog'
+import { isPreviewMode } from '@/lib/integration-mode'
+import { normalizeShopParams } from '@/lib/api/catalog'
 
 export const metadata: Metadata = {
   title: 'Explore Products',
   description:
-    'Browse Kookaburra sample electronics, fashion, footwear and home collections. This is a storefront preview.',
+    'Browse the current eShop catalog by category, price and availability.',
   robots: { index: false, follow: false },
 }
 
@@ -15,6 +18,9 @@ type Params = {
   sort?: string
   price?: string
   stock?: string
+  min?: string
+  max?: string
+  page?: string
 }
 export default async function ShopPage({
   searchParams,
@@ -22,6 +28,10 @@ export default async function ShopPage({
   searchParams: Promise<Params>
 }) {
   const params = await searchParams
+  if (!isPreviewMode) {
+    const normalized = normalizeShopParams(params)
+    return <LiveShop key={JSON.stringify(normalized)} params={normalized} />
+  }
   return (
     <ShopClient
       key={`${params.q ?? ''}/${params.category ?? ''}/${params.tag ?? ''}/${params.sort ?? ''}/${params.price ?? ''}/${params.stock ?? ''}`}

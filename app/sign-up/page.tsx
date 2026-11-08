@@ -1,9 +1,9 @@
 import type { Metadata } from 'next'
-import { AuthPreview } from '@/components/account/auth-preview'
+import { AuthEntry } from '@/components/auth/auth-entry'
 export const metadata: Metadata = {
-  title: 'Sign Up Preview',
+  title: 'Create account',
   robots: { index: false, follow: false },
 }
-export default function SignUpPage() {
-  return <AuthPreview mode="sign-up" />
+export default function Page() {
+  return <AuthEntry mode="sign-up" />
 }

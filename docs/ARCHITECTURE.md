@@ -2,7 +2,7 @@
 
 ## Scope
 
-Kookaburra is a **single-vendor, multi-category** store. Only the company lists products; there are no seller accounts, commissions or vendor settlements. The website is English-only and displays a single USD catalog with an international destination selector during checkout. A single set of web design tokens will inform the future native Flutter client.
+eShop is a **single-vendor, multi-category** store. Only the company lists products; there are no seller accounts, commissions or vendor settlements. The website is English-only and displays a single USD catalog with an international destination selector during checkout. A single set of web design tokens will inform the future native Flutter client.
 
 ## Frontend
 

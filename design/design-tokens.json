@@ -1,7 +1,7 @@
 {
   "$schema": "https://design-tokens.github.io/community-group/format/",
   "version": "1.0.0",
-  "project": "Kookaburra (Web + Flutter)",
+  "project": "eShop (Web + Flutter)",
   "color": {
     "primary": "#2459E8",
     "primaryHover": "#1649D3",

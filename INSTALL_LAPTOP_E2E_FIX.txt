@@ -1,4 +1,4 @@
-Kookaburra Playwright Laptop Display Fix
+eShop Playwright Laptop Display Fix
 
 Modified files: playwright.config.mjs; e2e/04-account-mobile.spec.mjs; docs/E2E_TESTING.md
 

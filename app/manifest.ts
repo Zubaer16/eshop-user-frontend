@@ -3,8 +3,8 @@ import type { MetadataRoute } from 'next'
 /** Visual install metadata only. This preview is not an offline-capable PWA. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Kookaburra Storefront Preview',
-    short_name: 'Kookaburra',
+    name: 'eShop Storefront Preview',
+    short_name: 'eShop',
     description:
       'Multi-category storefront UI preview. No live orders or payments.',
     start_url: '/',

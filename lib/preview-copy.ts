@@ -89,7 +89,7 @@ const englishCopy = {
   authRegisterDisabled: 'Registration not available',
   authLoginDisabled: 'Sign-in not available',
   authExisting: 'Already have an account?',
-  authNew: 'New to Kookaburra?',
+  authNew: 'New to eShop?',
   authLoginDesign: 'Sign-in design',
   authRegisterDesign: 'Registration design',
   authExplore: 'Explore account preview',

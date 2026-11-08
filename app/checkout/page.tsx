@@ -3,7 +3,8 @@ import { CheckoutClient } from '@/components/checkout/checkout-client'
 
 export const metadata: Metadata = {
   title: 'Checkout Preview',
-  description: 'Preview Kookaburra delivery address, delivery options and order review. No live checkout is available.',
+  description:
+    'Preview eShop delivery address, delivery options and order review. No live checkout is available.',
   robots: { index: false, follow: false },
 }
 

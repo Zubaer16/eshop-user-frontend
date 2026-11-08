@@ -1,6 +1,6 @@
 # Admin ↔ Storefront Data Contract (Draft)
 
-This document describes compatibility between the separate Kookaburra Admin and Customer Storefront frontends. Both currently use **independent browser-local fixtures**. Neither application reads or controls the other's state. No backend, order creation, payment, inventory reservation or cross-app content publication has been enabled.
+This document describes compatibility between the separate eShop Admin and Customer Storefront frontends. Both currently use **independent browser-local fixtures**. Neither application reads or controls the other's state. No backend, order creation, payment, inventory reservation or cross-app content publication has been enabled.
 
 ## Identity: preserve, then explicitly map
 

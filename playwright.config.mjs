@@ -49,6 +49,6 @@ export default defineConfig({
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
-        env: { NEXT_TELEMETRY_DISABLED: '1' },
+        env: { NEXT_TELEMETRY_DISABLED: '1', NEXT_PUBLIC_ESHOP_MODE: 'preview' },
       },
 })

@@ -4,8 +4,7 @@ import type { ReactNode } from 'react'
 // Frontend-only screen: do not index or imply a live commerce service.
 export const metadata: Metadata = {
   title: 'Sign In Preview',
-  description:
-    'Kookaburra sign-in design preview. Account authentication is not available.',
+  description: 'Sign in to your eShop customer account.',
   robots: { index: false, follow: false },
 }
 

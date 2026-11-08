@@ -14,6 +14,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
+import { isPreviewMode } from '@/lib/integration-mode'
 import { Logo } from '@/components/layout/logo'
 import {
   Sheet,
@@ -24,9 +25,11 @@ import {
 import { useCommerceStore } from '@/stores/commerce-store'
 import { useStoreReady } from '@/hooks/use-store-ready'
 import { dictionary } from '@/lib/i18n'
-import { categories } from '@/lib/catalog'
+import { categories as previewCategories } from '@/lib/catalog'
+import { useCatalog } from '@/components/catalog/catalog-provider'
 import { cn } from '@/lib/utils'
 import { useUiCopy } from '@/hooks/use-ui-copy'
+import { useCommerce } from '@/components/shopping/commerce-provider'
 
 function SearchBox({ compact = false }: { compact?: boolean }) {
   const router = useRouter()
@@ -78,6 +81,16 @@ function Counter({ count }: { count: number }) {
 }
 
 export function Header() {
+  const shopping = useCommerce()
+  const { categories: liveCategories } = useCatalog()
+  const categories = isPreviewMode
+    ? previewCategories.map((c) => ({ ...c, slug: c.id }))
+    : liveCategories.map((c) => ({
+        id: c.id,
+        slug: c.slug,
+        label: c.name,
+        description: c.description,
+      }))
   const pathname = usePathname()
   const ready = useStoreReady()
   const cart = useCommerceStore((s) => s.cart)
@@ -88,10 +101,18 @@ export function Header() {
   const menuRef = useRef<HTMLDivElement>(null)
   const categoryTriggerRef = useRef<HTMLButtonElement>(null)
   const t = dictionary()
-  const cartCount = ready
-    ? cart.reduce((sum, item) => sum + item.quantity, 0)
-    : 0
-  const wishCount = ready ? wishlist.length : 0
+  const cartCount = isPreviewMode
+    ? ready
+      ? cart.reduce((sum, item) => sum + item.quantity, 0)
+      : 0
+    : !shopping.loading && !shopping.cartError
+      ? shopping.cart?.items.reduce((sum, item) => sum + item.quantity, 0) || 0
+      : null
+  const wishCount = isPreviewMode
+    ? ready
+      ? wishlist.length
+      : 0
+    : shopping.wishlist?.count || 0
   const links = [
     { href: '/shop', label: t.shop },
     { href: '/categories', label: t.categories },
@@ -174,12 +195,19 @@ export function Header() {
           </Link>
           <button
             type="button"
-            aria-label={`Open cart, ${cartCount} items`}
-            onClick={() => setCartOpen(true)}
+            aria-label={
+              cartCount === null
+                ? 'Open cart, count unavailable'
+                : `Open cart, ${cartCount} items`
+            }
+            onClick={() => {
+              if (isPreviewMode) setCartOpen(true)
+              else shopping.setCartOpen(true)
+            }}
             className="relative flex size-10 items-center justify-center rounded-lg hover:bg-slate-100"
           >
             <ShoppingBag size={22} />
-            <Counter count={cartCount} />
+            <Counter count={cartCount ?? 0} />
           </button>
         </div>
       </div>
@@ -241,7 +269,7 @@ export function Header() {
                   {categories.map((category) => (
                     <Link
                       key={category.id}
-                      href={`/shop?category=${category.id}`}
+                      href={`/shop?category=${encodeURIComponent(category.slug)}`}
                       onClick={() => setCategoriesOpen(false)}
                       className="rounded-xl px-3 py-3 hover:bg-[#f3f6ff]"
                     >
@@ -271,18 +299,32 @@ export function Header() {
                 {label}
               </Link>
             ))}
-          <Link
-            href="/shop?category=footwear"
-            className="text-[13px] font-semibold text-[#4c5872] hover:text-primary"
-          >
-            {'Shoes'}
-          </Link>
-          <Link
-            href="/shop?category=fashion"
-            className="text-[13px] font-semibold text-[#4c5872] hover:text-primary"
-          >
-            {'Fashion'}
-          </Link>
+          {isPreviewMode ? (
+            <>
+              <Link
+                href="/shop?category=footwear"
+                className="text-[13px] font-semibold text-[#4c5872] hover:text-primary"
+              >
+                {'Shoes'}
+              </Link>
+              <Link
+                href="/shop?category=fashion"
+                className="text-[13px] font-semibold text-[#4c5872] hover:text-primary"
+              >
+                {'Fashion'}
+              </Link>
+            </>
+          ) : (
+            categories.slice(0, 2).map((c) => (
+              <Link
+                key={c.id}
+                href={'/shop?category=' + encodeURIComponent(c.slug)}
+                className="text-[13px] font-semibold text-[#4c5872] hover:text-primary"
+              >
+                {c.label}
+              </Link>
+            ))
+          )}
           <span className="ml-auto text-[12px] font-semibold text-[#52708f]">
             ✦ {t.freeShipping}
           </span>
@@ -323,7 +365,8 @@ export function Header() {
             className="mt-3 flex items-center justify-between rounded-xl bg-blue-50 px-3 py-3 text-sm font-extrabold text-primary"
           >
             <span className="flex items-center gap-2">
-              <UserRound size={17} /> {'Account preview'}
+              <UserRound size={17} />{' '}
+              {isPreviewMode ? 'Account preview' : 'Your account'}
             </span>
             <ArrowRight size={16} />
           </Link>
@@ -335,7 +378,7 @@ export function Header() {
             {categories.map((category) => (
               <Link
                 key={category.id}
-                href={`/shop?category=${category.id}`}
+                href={`/shop?category=${encodeURIComponent(category.slug)}`}
                 onClick={() => setMobileOpen(false)}
                 className="block rounded-xl px-3 py-2.5 text-sm text-ink hover:bg-blue-50"
               >

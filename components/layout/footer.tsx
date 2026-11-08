@@ -13,10 +13,21 @@ import {
 } from 'lucide-react'
 import { Logo } from '@/components/layout/logo'
 import { dictionary } from '@/lib/i18n'
-import { categories } from '@/lib/catalog'
+import { categories as previewCategories } from '@/lib/catalog'
+import { useCatalog } from '@/components/catalog/catalog-provider'
 import { useUiCopy } from '@/hooks/use-ui-copy'
+import { isPreviewMode } from '@/lib/integration-mode'
 
 export function Footer() {
+  const { categories: liveCategories } = useCatalog()
+  const categories = isPreviewMode
+    ? previewCategories.map((c) => ({ ...c, slug: c.id }))
+    : liveCategories.map((c) => ({
+        id: c.id,
+        slug: c.slug,
+        label: c.name,
+        description: c.description,
+      }))
   const t = dictionary()
   const u = useUiCopy()
   const benefits = [
@@ -100,7 +111,7 @@ export function Footer() {
                 {u.account}
               </Link>
               <Link className="hover:text-white" href="/track">
-                {u.trackSample}
+                {isPreviewMode ? u.trackSample : 'Track your order'}
               </Link>
             </div>
           </div>
@@ -113,7 +124,7 @@ export function Footer() {
                 <Link
                   key={category.id}
                   className="hover:text-white"
-                  href={`/shop?category=${category.id}`}
+                  href={`/shop?category=${encodeURIComponent(category.slug)}`}
                 >
                   {category.label}
                 </Link>
@@ -139,9 +150,13 @@ export function Footer() {
         <div className="border-t border-white/10">
           <div className="container-shell flex flex-col justify-between gap-2 py-5 text-xs text-[#96a4bf] sm:flex-row">
             <span>
-              © {new Date().getFullYear()} Kookaburra. All rights reserved.
+              © {new Date().getFullYear()} eShop. All rights reserved.
             </span>
-            <span>{u.footerPreview}</span>
+            <span>
+              {isPreviewMode
+                ? u.footerPreview
+                : 'Shopping features coming soon'}
+            </span>
           </div>
         </div>
       </footer>
