@@ -7,6 +7,17 @@ import { SecuritySettings } from './security-settings'
 import { AccountHome, LiveAddresses } from '@/components/shopping/account'
 import { LiveCartPage, LiveWishlist } from '@/components/shopping/cart'
 import { LiveCheckout } from '@/components/shopping/checkout'
+import {
+  LiveOrderHistory,
+  LiveOrderDetail,
+  LiveTracking,
+} from '@/components/orders/orders'
+import { LiveInbox } from '@/components/notifications/inbox'
+import {
+  LiveStoreHome,
+  LiveCollection,
+  LivePolicy,
+} from '@/components/store/live-store'
 export function UserBoundary({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   if (
@@ -36,6 +47,43 @@ export function UserBoundary({ children }: { children: React.ReactNode }) {
       </RequireAuth>
     )
   if (pathname === '/cart') return <LiveCartPage />
+  if (pathname === '/') return <LiveStoreHome />
+  if (pathname.startsWith('/collections/'))
+    return (
+      <LiveCollection
+        key={pathname}
+        slug={pathname.slice('/collections/'.length)}
+      />
+    )
+  if (pathname.startsWith('/policies/'))
+    return <LivePolicy kind={pathname.slice('/policies/'.length)} />
+  if (pathname === '/account/notifications')
+    return (
+      <RequireAuth>
+        <LiveInbox />
+      </RequireAuth>
+    )
+  if (pathname === '/account/orders')
+    return (
+      <RequireAuth>
+        <LiveOrderHistory />
+      </RequireAuth>
+    )
+  if (pathname.startsWith('/account/orders/'))
+    return (
+      <RequireAuth>
+        <LiveOrderDetail
+          key={pathname}
+          id={pathname.slice('/account/orders/'.length)}
+        />
+      </RequireAuth>
+    )
+  if (pathname === '/track')
+    return (
+      <RequireAuth>
+        <LiveTracking />
+      </RequireAuth>
+    )
   if (pathname === '/checkout')
     return (
       <RequireAuth>

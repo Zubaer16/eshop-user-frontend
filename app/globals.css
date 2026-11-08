@@ -1,5 +1,32 @@
 @import 'tailwindcss';
 
+html[data-store-theme='dark'] {
+  color-scheme: dark;
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+  --ink: #e2e8f0;
+  --muted: #a8b5c9;
+  --canvas: #0f172a;
+  --line: #334155;
+}
+html[data-store-theme='dark'] .bg-white {
+  background-color: #172033;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-store-theme='system'] {
+    color-scheme: dark;
+    --background: #0f172a;
+    --foreground: #e2e8f0;
+    --ink: #e2e8f0;
+    --muted: #a8b5c9;
+    --canvas: #0f172a;
+    --line: #334155;
+  }
+  html[data-store-theme='system'] .bg-white {
+    background-color: #172033;
+  }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #152039;

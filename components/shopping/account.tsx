@@ -49,6 +49,10 @@ function AccountNav() {
       <Link href="/account/settings">Security settings</Link>
       <Link href="/wishlist">Saved items</Link>
       <Link href="/cart">Your cart</Link>
+      <Link href="/account/orders">Your orders</Link>
+      <Link href="/account/notifications">
+        Inbox and notification preferences
+      </Link>
       <button
         onClick={() => {
           void api.signOut()

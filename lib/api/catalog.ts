@@ -129,7 +129,12 @@ export function moneyInput(minor: number, currency = 'USD') {
   return (minor / 10 ** digits).toFixed(digits)
 }
 export function money(minor: number, currency = 'USD') {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(
+  return new Intl.NumberFormat(
+    typeof document === 'undefined'
+      ? 'en-US'
+      : document.documentElement.dataset.storeLocale || 'en-US',
+    { style: 'currency', currency },
+  ).format(
     minor /
       10 **
         (new Intl.NumberFormat('en', {

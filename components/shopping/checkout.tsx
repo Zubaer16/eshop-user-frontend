@@ -264,6 +264,12 @@ export function LiveCheckout() {
           {order ? (
             <section className="space-y-5 rounded-2xl border border-slate-200 p-5">
               <h2 className="text-xl font-black">Order {order.id}</h2>
+              <Link
+                href={'/account/orders/' + order.id}
+                className="text-sm font-bold text-primary"
+              >
+                Open order details and tracking
+              </Link>
               <p role="status">
                 Order status: <strong>{order.status}</strong>
               </p>

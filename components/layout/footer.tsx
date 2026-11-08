@@ -17,8 +17,12 @@ import { categories as previewCategories } from '@/lib/catalog'
 import { useCatalog } from '@/components/catalog/catalog-provider'
 import { useUiCopy } from '@/hooks/use-ui-copy'
 import { isPreviewMode } from '@/lib/integration-mode'
+import { LiveStoreFooter } from '@/components/store/live-store'
 
 export function Footer() {
+  return isPreviewMode ? <PreviewFooter /> : <LiveStoreFooter />
+}
+function PreviewFooter() {
   const { categories: liveCategories } = useCatalog()
   const categories = isPreviewMode
     ? previewCategories.map((c) => ({ ...c, slug: c.id }))

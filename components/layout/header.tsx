@@ -30,6 +30,7 @@ import { useCatalog } from '@/components/catalog/catalog-provider'
 import { cn } from '@/lib/utils'
 import { useUiCopy } from '@/hooks/use-ui-copy'
 import { useCommerce } from '@/components/shopping/commerce-provider'
+import { useStoreConfiguration } from '@/components/store/live-store'
 
 function SearchBox({ compact = false }: { compact?: boolean }) {
   const router = useRouter()
@@ -81,6 +82,7 @@ function Counter({ count }: { count: number }) {
 }
 
 export function Header() {
+  const store = useStoreConfiguration()
   const shopping = useCommerce()
   const { categories: liveCategories } = useCatalog()
   const categories = isPreviewMode
@@ -170,9 +172,11 @@ export function Header() {
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-4">
           <span
             className="hidden rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-primary md:inline-flex"
-            aria-label="Prices shown in US dollars"
+            aria-label="Preferred display currency; prices retain their listed currency"
           >
-            USD $
+            {isPreviewMode
+              ? 'USD $'
+              : store.operations?.displayCurrency || 'USD'}
           </span>
           <Link
             href="/account"
@@ -184,15 +188,25 @@ export function Header() {
               {t.account}
             </span>
           </Link>
-          <Link
-            href="/wishlist"
-            aria-label={t.wishlist}
-            title={t.wishlist}
-            className="relative flex size-10 items-center justify-center rounded-lg hover:bg-slate-100"
-          >
-            <Heart size={22} />
-            <Counter count={wishCount} />
-          </Link>
+          {!isPreviewMode && (
+            <Link
+              href="/account/notifications"
+              className="rounded-lg p-2 text-sm font-bold text-primary"
+            >
+              Inbox
+            </Link>
+          )}
+          {(isPreviewMode || store.operations?.showWishlist !== false) && (
+            <Link
+              href="/wishlist"
+              aria-label={t.wishlist}
+              title={t.wishlist}
+              className="relative flex size-10 items-center justify-center rounded-lg hover:bg-slate-100"
+            >
+              <Heart size={22} />
+              <Counter count={wishCount} />
+            </Link>
+          )}
           <button
             type="button"
             aria-label={

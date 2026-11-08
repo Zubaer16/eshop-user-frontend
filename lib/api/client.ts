@@ -23,3 +23,18 @@ export const api = createApiClient({
   onLogin: () => announceSession('customer', 'login'),
 })
 export const apiRequest = api.request
+
+const sessionSignOut = api.signOut
+api.signOut = async () => {
+  const ticket = api.getSnapshot()
+  if (typeof window !== 'undefined') {
+    const push = await import('./browser-push')
+    await push.revokeBrowserPush().catch(() => push.pauseBrowserPush())
+  }
+  if (
+    api.getSnapshot().epoch !== ticket.epoch ||
+    api.getSnapshot().user?.id !== ticket.user?.id
+  )
+    return false
+  return sessionSignOut()
+}
