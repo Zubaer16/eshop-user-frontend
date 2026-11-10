@@ -17,18 +17,23 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params
   if (!isPreviewMode) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > 200)
+      notFound()
+    let product
     try {
-      const product = await publicProduct(slug)
-      return {
-        title: product?.title || 'Product not found',
-        description: product?.description || 'Product unavailable.',
-        robots: { index: false, follow: false },
-      }
+      product = await publicProduct(slug)
     } catch {
       return {
         title: 'Product unavailable',
         robots: { index: false, follow: false },
       }
+    }
+    // Resolve absence before response streaming commits a successful status.
+    if (!product) notFound()
+    return {
+      title: product.title,
+      description: product.description,
+      robots: { index: false, follow: false },
     }
   }
   const product = findProduct(slug)

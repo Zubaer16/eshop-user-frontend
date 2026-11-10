@@ -423,6 +423,7 @@ export function LiveCheckout() {
               <label className="block text-sm font-bold">
                 Delivery address
                 <select
+                  aria-label="Delivery address"
                   className={inputClass}
                   value={addressId}
                   disabled={busy || active || Boolean(intent)}
@@ -495,6 +496,7 @@ export function LiveCheckout() {
                 <label className="block text-sm font-bold">
                   Delivery service
                   <select
+                    aria-label="Delivery service"
                     className={inputClass}
                     value={kind}
                     disabled={busy || Boolean(intent)}

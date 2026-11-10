@@ -7,6 +7,7 @@ import { ProductCard } from '@/components/store/product-card'
 import { categories, products, productPrice } from '@/lib/catalog'
 import { useUiCopy } from '@/hooks/use-ui-copy'
 import { buildShopQuery } from '@/lib/shop-query'
+import { useStoreReady } from '@/hooks/use-store-ready'
 
 type ShopProps = {
   query: string
@@ -25,6 +26,7 @@ export function ShopClient({
   price,
   stock,
 }: ShopProps) {
+  const ready = useStoreReady()
   const [text, setText] = useState(query)
   const [selectedCategory, setSelectedCategory] = useState(category)
   const [selectedTag, setSelectedTag] = useState(tag)
@@ -117,14 +119,7 @@ export function ShopClient({
     if (sortBy === 'newest')
       result.sort((a, b) => Number(b.tag === 'new') - Number(a.tag === 'new'))
     return result
-  }, [
-    text,
-    selectedCategory,
-    selectedTag,
-    sortBy,
-      priceLimit,
-    stockOnly,
-  ])
+  }, [text, selectedCategory, selectedTag, sortBy, priceLimit, stockOnly])
 
   function reset() {
     setText('')
@@ -329,6 +324,7 @@ export function ShopClient({
             <button
               type="button"
               ref={filterToggleRef}
+              disabled={!ready}
               aria-controls="shop-filter-panel"
               aria-expanded={showFilters}
               onClick={toggleMobileFilters}

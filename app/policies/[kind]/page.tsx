@@ -1,8 +1,16 @@
-import type { Metadata } from 'next'
-export const metadata: Metadata = {
-  title: 'Store policy',
-  robots: { index: false, follow: false },
-}
-export default function PolicyPage() {
-  return null
+import { LivePolicy } from '@/components/store/live-store'
+import { isPreviewMode } from '@/lib/integration-mode'
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ kind: string }>
+}) {
+  const { kind } = await params
+  if (isPreviewMode)
+    return (
+      <p className="container-shell py-14">
+        This section is available in live mode.
+      </p>
+    )
+  return <LivePolicy key={kind} kind={kind} />
 }

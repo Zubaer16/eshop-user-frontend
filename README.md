@@ -1,5 +1,9 @@
 # eShop Storefront
 
+## Current API integration and routing
+
+Live API features are implemented with explicit preview mode kept separate. Each page renders its own feature; shared boundaries enforce authentication/current permissions. Current executed checks, accepted v1 limits and separate provider/deployment acceptance are tracked in the sibling eshop-backend/docs/WEB_VALIDATION.md report. Earlier implementation-time deferral notes below are historical.
+
 Product name: **eShop**; package name: `eshop-user-frontend`. Existing checkout folders and persisted technical identifiers remain compatible.
 
 A responsive, single-vendor, multi-category e-commerce storefront built with Next.js, TypeScript, Tailwind CSS and customizable shadcn/ui-style components. The interface is **English-only** with USD pricing and a unified international shopping experience. The web design provides the reference for a future Flutter app.

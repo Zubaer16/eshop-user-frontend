@@ -336,6 +336,7 @@ export function LiveOrderDetail({ id }: { id: string }) {
                 <label className="block text-sm font-bold">
                   Order line
                   <select
+                    aria-label="Order line"
                     className={inputClass}
                     value={lineId}
                     onChange={(e) => setLineId(e.target.value)}
@@ -377,6 +378,7 @@ export function LiveOrderDetail({ id }: { id: string }) {
                 <label className="block text-sm font-bold">
                   Return reason
                   <select
+                    aria-label="Return reason"
                     className={inputClass}
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}

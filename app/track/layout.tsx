@@ -1,14 +1,16 @@
+import { isPreviewMode } from '@/lib/integration-mode'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 
-// Frontend-only screen: do not index or imply a live commerce service.
+// Cart and private account surfaces remain excluded from indexing.
 export const metadata: Metadata = {
-  title: 'Tracking Preview',
-  description:
-    'Explore sample order tracking timelines. Real shipments are not connected.',
+  title: isPreviewMode ? 'Tracking Preview' : 'Order tracking',
+  description: isPreviewMode
+    ? 'Explore sample order tracking timelines. Real shipments are not connected.'
+    : 'Track delivery and returns for your own order UUID.',
   robots: { index: false, follow: false },
 }
 
-export default function PreviewLayout({ children }: { children: ReactNode }) {
+export default function Layout({ children }: { children: ReactNode }) {
   return children
 }

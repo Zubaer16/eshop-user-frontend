@@ -272,6 +272,7 @@ export function LiveShop({ params }: { params: ShopQuery }) {
           <label className="block text-sm font-bold">
             Category
             <select
+              aria-label="Category"
               className={control + ' mt-2'}
               value={category}
               onChange={(e) => setCategory(e.target.value)}
@@ -287,6 +288,7 @@ export function LiveShop({ params }: { params: ShopQuery }) {
           <label className="block text-sm font-bold">
             Tag
             <select
+              aria-label="Tag"
               className={control + ' mt-2'}
               value={tag}
               onChange={(e) => setTag(e.target.value)}
@@ -300,6 +302,7 @@ export function LiveShop({ params }: { params: ShopQuery }) {
           <label className="block text-sm font-bold">
             Sort
             <select
+              aria-label="Sort"
               className={control + ' mt-2'}
               value={sort}
               onChange={(e) => setSort(e.target.value)}
@@ -312,6 +315,7 @@ export function LiveShop({ params }: { params: ShopQuery }) {
           <label className="block text-sm font-bold">
             Availability
             <select
+              aria-label="Availability"
               className={control + ' mt-2'}
               value={stock}
               onChange={(e) => setStock(e.target.value)}
@@ -536,6 +540,7 @@ export function LiveProduct({ initial }: { initial: Product }) {
               <label className="mt-6 block text-sm font-bold">
                 Size / color
                 <select
+                  aria-label="Size / color"
                   className={control + ' mt-2'}
                   value={variantId}
                   onChange={(e) => setVariantId(e.target.value)}

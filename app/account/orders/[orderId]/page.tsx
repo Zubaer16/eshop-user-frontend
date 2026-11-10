@@ -1,3 +1,4 @@
+import { LiveOrderDetail } from '@/components/orders/orders'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { OrderDetailClient } from '@/components/account/order-detail-client'
@@ -19,7 +20,7 @@ export default async function OrderDetailPage({
   params: Promise<{ orderId: string }>
 }) {
   const { orderId } = await params
-  if (!isPreviewMode) return null
+  if (!isPreviewMode) return <LiveOrderDetail key={orderId} id={orderId} />
   const order = previewOrderById(orderId)
   if (!order) notFound()
   return <OrderDetailClient order={order} />

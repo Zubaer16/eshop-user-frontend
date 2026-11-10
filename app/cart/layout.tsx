@@ -1,14 +1,16 @@
+import { isPreviewMode } from '@/lib/integration-mode'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 
-// Frontend-only screen: do not index or imply a live commerce service.
+// Cart and private account surfaces remain excluded from indexing.
 export const metadata: Metadata = {
-  title: 'Shopping Cart Preview',
-  description:
-    'Review items saved in your eShop preview cart. No orders are processed.',
+  title: isPreviewMode ? 'Shopping Cart Preview' : 'Shopping Cart',
+  description: isPreviewMode
+    ? 'Review items saved in your eShop preview cart. No orders are processed.'
+    : 'Review current server prices and availability before checkout.',
   robots: { index: false, follow: false },
 }
 
-export default function PreviewLayout({ children }: { children: ReactNode }) {
+export default function Layout({ children }: { children: ReactNode }) {
   return children
 }

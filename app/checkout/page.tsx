@@ -1,13 +1,20 @@
+import { Suspense } from 'react'
+import { isPreviewMode } from '@/lib/integration-mode'
+import { LiveCheckout } from '@/components/shopping/checkout'
+import PreviewPage from '@/components/preview/pages/checkout'
 import type { Metadata } from 'next'
-import { CheckoutClient } from '@/components/checkout/checkout-client'
-
 export const metadata: Metadata = {
-  title: 'Checkout Preview',
-  description:
-    'Preview eShop delivery address, delivery options and order review. No live checkout is available.',
+  title: isPreviewMode ? 'Checkout Preview' : 'Checkout',
+  description: isPreviewMode
+    ? 'Preview eShop checkout.'
+    : 'Review delivery, server totals and TEST payment options.',
   robots: { index: false, follow: false },
 }
-
-export default function CheckoutPage() {
-  return <CheckoutClient />
+export default function Page() {
+  if (isPreviewMode) return <PreviewPage />
+  return (
+    <Suspense fallback={<p role="status">Loading...</p>}>
+      <LiveCheckout />
+    </Suspense>
+  )
 }
