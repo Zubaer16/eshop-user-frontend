@@ -3,35 +3,46 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { api } from '@/lib/api/client'
+import { LiveHomepage } from '@/components/store/live-homepage'
 import { money, imageUrl } from '@/lib/api/catalog'
 import { isPreviewMode } from '@/lib/integration-mode'
-type Asset = {
+export type Asset = {
   id: string
   url: string
   alt?: string
   width: number
   height: number
+  mimeType?: string
+  srcSet?: string
+  sizes?: string
 }
-type ProductCard = {
+export type StoreProductCard = {
   id: string
   slug: string
   title: string
   currency: string
   priceMinor: number
+  compareAtMinor: number | null
+  badge: string
+  tag: string | null
   availableQuantity: number
   hasVariants: boolean
   image: Asset | null
 }
-type Collection = {
+export type Collection = {
   id: string
   slug: string
   title: string
   description: string
+  position: number
+  productIds: string[]
   productCount: number
   productsTruncated: boolean
-  products: ProductCard[]
+  products: StoreProductCard[]
 }
-type Home = {
+export type Home = {
+  schemaVersion: number
+  revision: string
   bannersTruncated: boolean
   collectionsTruncated: boolean
   banners: {
@@ -40,6 +51,8 @@ type Home = {
     subtitle: string
     ctaText: string
     ctaHref: string
+    slot: 'hero' | 'secondary' | 'promo'
+    position: number
     image: Asset | null
   }[]
   collections: Collection[]
@@ -152,86 +165,44 @@ export function LiveStoreHome() {
       controller.abort()
     }
   }, [revision])
-  return (
-    <section className="container-shell space-y-8 py-10">
-      <h1 className="text-3xl font-black">
-        {store.data?.profile.storeName || 'eShop'}
-      </h1>
-      {store.data?.profile.supportNotice && (
-        <p className="rounded-xl bg-blue-50 p-4">
-          {store.data.profile.supportNotice}
-        </p>
-      )}
-      {error ? (
-        <p role="alert">{error}</p>
-      ) : !data ? (
-        <p role="status">Loading published store content…</p>
-      ) : (
-        <>
-          {data.banners.map((b) => (
-            <article
-              key={b.id}
-              className="grid gap-6 rounded-3xl border border-slate-200 bg-white p-7 md:grid-cols-2"
-            >
-              <div>
-                <h2 className="text-3xl font-black">{b.headline}</h2>
-                <p className="my-4 text-muted">{b.subtitle}</p>
-                {safeStorePath(b.ctaHref) && (
-                  <Link
-                    href={b.ctaHref}
-                    className="inline-flex rounded-xl bg-primary px-5 py-3 font-bold text-white"
-                  >
-                    {b.ctaText}
-                  </Link>
-                )}
-              </div>
-              {b.image && imageUrl(b.image.url) && (
-                <img
-                  src={imageUrl(b.image.url)!}
-                  width={b.image.width}
-                  height={b.image.height}
-                  alt={b.image.alt || b.headline}
-                  className="max-h-80 w-full rounded-2xl object-contain"
-                />
-              )}
-            </article>
-          ))}
-          {data.collections.map((c) => (
-            <section key={c.id} className="space-y-5">
-              <Link
-                href={'/collections/' + c.slug}
-                className="text-2xl font-black text-primary"
-              >
-                {c.title}
-              </Link>
-              <p className="text-sm text-muted">{c.description}</p>
-              <CollectionProducts collection={c} />
-            </section>
-          ))}
-          {!data.banners.length && !data.collections.length && (
-            <p>
-              No featured content is published yet. Browse the current catalog.
-            </p>
-          )}
-          {(data.bannersTruncated || data.collectionsTruncated) && (
-            <p className="text-sm text-muted">
-              Featured selection is bounded; browse the catalog for more.
-            </p>
-          )}
-        </>
-      )}
-      <div className="flex gap-5">
-        <Link href="/shop" className="font-bold text-primary">
-          Browse products
-        </Link>
-        <button
-          onClick={() => setRevision((v) => v + 1)}
-          className="text-sm font-bold text-primary"
+  if (error) {
+    return (
+      <section className="container-shell py-12">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
+          <p role="alert" className="text-sm text-red-800">
+            {error}
+          </p>
+          <button
+            type="button"
+            onClick={() => setRevision((value) => value + 1)}
+            className="mt-4 inline-flex min-h-10 items-center rounded-xl bg-primary px-4 text-sm font-bold text-white"
+          >
+            Retry loading content
+          </button>
+        </div>
+      </section>
+    )
+  }
+
+  if (!data) {
+    return (
+      <section className="container-shell py-12">
+        <p
+          role="status"
+          className="rounded-2xl border border-border bg-white p-6 text-sm text-muted"
         >
-          Refresh featured content
-        </button>
-      </div>
-    </section>
+          Loading published store content…
+        </p>
+      </section>
+    )
+  }
+
+  return (
+    <LiveHomepage
+      data={data}
+      supportNotice={store.data?.profile.supportNotice || ''}
+      onRefresh={() => setRevision((value) => value + 1)}
+    />
   )
 }
 export function safeStorePath(value: string) {

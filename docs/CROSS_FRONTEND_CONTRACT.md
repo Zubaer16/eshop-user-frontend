@@ -1,52 +1,60 @@
-# Admin ↔ Storefront Data Contract (Draft)
+# Admin ↔ Storefront Data Contract
 
-This document describes compatibility between the separate eShop Admin and Customer Storefront frontends. Both currently use **independent browser-local fixtures**. Neither application reads or controls the other's state. No backend, order creation, payment, inventory reservation or cross-app content publication has been enabled.
+This document records the current source-level contract between the separate eShop Admin and Customer Storefront applications. The Backend remains authoritative for catalog, media, publication, pricing, availability, cart, checkout and order state.
 
-## Identity: preserve, then explicitly map
+## Current live Storefront integration (2026-11-12)
 
-- Storefront fixture product IDs (such as `p-sneaker`) differ from Admin fixture IDs (such as `p-102`), even for similarly named items.
-- Existing cart and wishlist IDs stay unchanged, including `kookaburra-storefront-preview-v1` storage. Never rewrite these with name-based guesses.
-- Canonical product/category/variant IDs will be server-owned. Establish an **approved, explicit** mapping before importing fixture data. Some Admin and storefront prices and stocks differ: neither is authoritative.
-- The current Storefront categories are flat (`parentId: null`); Admin permits nested categories. Seven storefront category slugs, including `lifestyle`, remain available.
-- The storefront's color-only tote, size/color sneakers and simple products project into `ApiVariant.options` flexibly. A simple product is projected with an **empty variants array**, rather than a fabricated variant ID. Backend design must agree on how simple inventory lines work.
+### Public data sources
 
-## Core projection modules
+- `GET /v1/store/bootstrap` supplies the configured store profile, published footer/policy/SEO text and verified logo/favicon references.
+- `GET /v1/store/operations` supplies public presentation settings such as locale, display currency, theme, accent and navigation visibility. It does not convert product/order amounts; the USD catalog policy remains unchanged.
+- `GET /v1/categories` supplies canonical active categories and their parent/child relationships. The Live Homepage renders active top-level categories from this response rather than the old seven-category preview fixture.
+- `GET /v1/store/homepage` supplies the bounded published homepage projection. The response includes `schemaVersion`, opaque `revision`, `bannersTruncated`, `collectionsTruncated`, ordered banners and featured collections. Banners carry `slot` (`hero`, `secondary`, `promo`), `position`, a safe same-site CTA and a verified media projection.
+- Homepage collection cards are bounded to eight products per collection. When the selected collection reports `productsTruncated`, the Storefront may request `GET /v1/store/collections/:slug` to load the canonical full collection projection (up to the Backend's detail limit) rather than silently treating the homepage preview limit as the collection's total.
+- `GET /v1/store/collections/:slug` supplies the canonical published collection detail and ACTIVE product cards.
+- `/v1/products` and the existing product detail routes remain the canonical product/shop source. Product links preserve server-provided slugs and prices remain integer minor-unit amounts with their returned currency.
 
-- `lib/api/contracts.ts`: mirrored `ApiCategory`, `ApiProduct`, `ApiVariant`, `ApiCartItem`, `QuoteRequest`, `ApiAddress`, `ApiCheckoutQuote`, `ApiOrder` drafts, aligned with the Admin-side compatibility draft.
-- `lib/api/storefront-adapters.ts`: read-only `categoryToApi`, `productToApi`, `cartToApiItems`; USD prices become integer minor units; no fixture IDs are migrated and no out-of-stock variants are made purchasable.
-- `lib/api/checkout-alignment.ts`: maps checkout countries to ISO 3166-1 alpha-2 codes and builds a **local, non-submitted** request draft and SKU/option snapshots. `Other country` is intentionally unresolved and requires selecting a specific country before a real quote. Cart lines without a required variant remain invalid.
-- `lib/api/order-alignment.ts`: preserves independent fictional account order item/title/option snapshots with explicitly unresolved product/variant IDs; never guesses identity from matching names or prices.
-- `lib/api/content-alignment.ts`: proposed public banner and featured-collection data shapes. Admin's local banners/collections are **not published** to the customer site. External CTA URLs are disallowed; product IDs must be explicitly matched. Current homepage fixtures remain unchanged.
-- `lib/api/client.ts`: dormant future transport; use only when authenticated backend endpoints are implemented and approved.
+### Live Homepage presentation
 
-## Checkout and order boundaries
+The Live Homepage now restores the composition of `components/preview/pages/home.tsx` while replacing preview fixtures with Backend data:
 
-1. Customer chooses a product and (if needed) an **explicit size/color variant**. The local cart holds `{productId, variantId?, quantity}`.
-2. The checkout UI validates local fixture availability for the preview only. `cartToApiItems` preserves product and variant IDs without guessing.
-3. The draft checkout address uses ISO country codes and item lines include optional SKU/option snapshots. The quote _request_ sends **no client-authoritative prices**.
-4. A future backend must re-check auth, category/product status, stock, delivery eligibility, promotions, tax, currency and provide an **expiring server quote**, including authoritative amounts. The local sample shipping fee of $18 or $35 is **not** a server quote.
-5. Only a future authenticated server can create orders, snapshots, Stripe test Checkout Sessions, fulfillment activity and verified refunds. Customer-account example orders are independent fictional fixtures; some have different item prices and are **not** joined to the active product catalog.
-6. Real order lines should include canonical `variantId`, SKU and option snapshots, monetary snapshots and a backend order ID. Legacy previews with unknown variants remain flagged as unresolved; never infer sizes/colors.
+1. One large hero banner, selected by `slot=hero` (position order is the fallback), using the uploaded image as a full-width visual with readable text overlay. If a published hero is text-only, the existing local hero illustration is a decorative fallback.
+2. Up to two compact promotional cards for the remaining published banners, with text and image balanced in a pastel split-card layout. Further banners remain visible in an additional responsive card row.
+3. A three-item discovery/trust strip using non-transactional presentation copy.
+4. Active top-level categories from `/v1/categories`, with deterministic icon mapping and the Backend-provided category tint where valid.
+5. Keyboard-accessible featured-collection tabs from the published homepage projection. Truncated selected collections are expanded through the collection-detail API.
+6. The original dark promotional section and local bottle illustration as a decorative footer section.
 
-## Content boundary
+The Live Homepage does not read preview product/category fixtures as a fallback. `NEXT_PUBLIC_ESHOP_MODE=preview` continues to render the original Preview Page and its local fixtures. Live mode continues to use the Backend's published projections only.
 
-The Admin stores banner, campaign, coupon and featured collection previews locally. The storefront currently renders its own homepage and merchandising fixtures. Future public APIs must supply published, validated content with safe same-site CTA paths, approved product IDs and revision/visibility metadata. Coupon redemption **must not** be calculated authoritatively in the browser.
+### Media and navigation boundaries
 
-## Verification
+- Public media URLs are accepted only through `imageUrl()`; it permits HTTPS and local HTTP development URLs, rejects credentials and other schemes.
+- CTA links are rechecked as safe same-site paths in the browser. External/protocol-relative links, traversal and encoded separator tricks are not rendered.
+- Product and collection destinations use canonical server slugs, URL-encoded as path segments.
+- Product availability is a display hint only. Cart, reservation, checkout and payment authority remain server-side.
+- The Storefront does not publish content, mutate Inventory, change prices, or write Admin records.
+
+## Preview compatibility
+
+`NEXT_PUBLIC_ESHOP_MODE=preview` remains a separate, explicit local preview mode. It uses `components/preview/pages/home.tsx`, `lib/catalog.ts`, local SVG artwork and preview-only shopping state. Preview fixtures are not used to fill missing Live API data.
+
+## Verification commands
+
+Run from the Storefront repository root using the repository-pinned Node version (`.nvmrc`, Node 24):
 
 ```powershell
+npm run verify
 npm run verify:compatibility
-npm run check
-npm run test:e2e:visual
+npm run typecheck
+npm run lint
+npm run build
+npm run test:unit
+npm run test:e2e:list
 ```
 
-The new source-level verifier executes the TypeScript mapping functions and checks fixture coverage, item options, price minor units, ISO mapping, unresolved variants and content filtering. Playwright includes selected-variant review and unresolved-country preview journeys. Real server, auth, multi-app integration and production billing require separate tests once implemented.
+Visual/browser acceptance still requires a configured live API and a browser run against the deployed or local Storefront. A source-level verifier passing is not proof of live API, media-host, browser or deployment acceptance.
 
-## Backend handoff checklist
+## Change boundaries
 
-- Confirm canonical catalog ownership, import identity mapping and unique SKU policy.
-- Decide simple-product vs explicit default-variant representation and stock allocations.
-- Agree category parent/slugs and product/editorial/public-content visibility shape.
-- Define `/v1` catalog, authenticated cart, checkout quote, payment, order, reporting and publication endpoints via OpenAPI.
-- Add server-side shipping-country eligibility/tax rates, delivery IDs `standard`/`express`, and pricing reconciliation.
-- Implement secure authenticated Admin RBAC/audit and customer sessions before enabling writes or payments.
+The homepage restoration is a Storefront presentation-only change. It does not require a Backend API change, database migration, content rewrite, media re-upload, or Admin change. Preserve the current API shapes and the Backend's bounded publication rules.
