@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '@/lib/api/client'
+import { publicData, readPublic } from '@/lib/api/public-data'
 import {
   categoryLabel,
   imageUrl,
@@ -153,7 +154,14 @@ export function Categories() {
 export function Shop({ params }: { params: ShopQuery }) {
   const router = useRouter(),
     catalog = useCatalog(),
-    [data, setData] = useState<Page<Product> | null>(null),
+    [data, setData] = useState<Page<Product> | null>(() => {
+      try {
+        const cached = publicData.peek('/v1/products', shopQuery(params))
+        return cached ? readPage(cached, readProduct) : null
+      } catch {
+        return null
+      }
+    }),
     [error, setError] = useState(''),
     [revision, setRevision] = useState(0)
   const [showFilters, setShowFilters] = useState(false)
@@ -179,18 +187,12 @@ export function Shop({ params }: { params: ShopQuery }) {
   })
   useEffect(() => {
     let active = true
-    const controller = new AbortController()
-    setData(null)
     setError('')
     async function load() {
       try {
         const query = shopQuery(JSON.parse(key))
         const result = readPage(
-          await api.request('/v1/products', {
-            query,
-            auth: false,
-            signal: controller.signal,
-          }),
+          await readPublic('/v1/products', query, revision > 0),
           readProduct,
         )
         if (active) setData(result)
@@ -211,7 +213,6 @@ export function Shop({ params }: { params: ShopQuery }) {
     const timer = setInterval(focus, 60000)
     return () => {
       active = false
-      controller.abort()
       clearInterval(timer)
       window.removeEventListener('focus', focus)
     }
@@ -687,12 +688,7 @@ function RelatedProducts({
   useEffect(() => {
     const controller = new AbortController()
     setItems([])
-    void api
-      .request('/v1/products', {
-        auth: false,
-        query: { category, limit: 5 },
-        signal: controller.signal,
-      })
+    void readPublic('/v1/products', { category, limit: 5 })
       .then((value) => {
         if (!controller.signal.aborted)
           setItems(

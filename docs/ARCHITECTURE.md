@@ -11,3 +11,5 @@ Routes compose actual features. `UserBoundary`/`RequireAuth` protect private nav
 Mutations retain auth, ownership, exact minor-unit amounts, explicit variants, inventory eligibility, idempotency and checkout recovery. Only confirmed Backend state indicates payment/refund success. Provider secrets remain deployment-owned. The API also serves Admin and future Flutter clients.
 
 Controlled API responses exist in tests only. See [E2E guide](E2E_TESTING.md), [consolidation](STOREFRONT_CONSOLIDATION.md) and Master Docs for validation/deployment boundaries.
+
+Public navigation uses a bounded 30-second browser-memory cache with in-flight deduplication; explicit refresh bypasses it. Private/cart/checkout/order/auth data is excluded. Public bootstrap metadata uses 30-second server revalidation; product detail remains request-time and commerce authority is unchanged. See [loading correction](NAVIGATION_LOADING_2026-11-13.md).

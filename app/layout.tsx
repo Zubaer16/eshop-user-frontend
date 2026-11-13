@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next'
-import { connection } from 'next/server'
 import './globals.css'
 import { UserBoundary } from '@/components/auth/user-boundary'
 import { Header } from '@/components/layout/header'
@@ -9,7 +8,6 @@ import { apiOrigin } from '@/lib/api/runtime'
 import { imageUrl } from '@/lib/api/catalog'
 
 export async function generateMetadata(): Promise<Metadata> {
-  await connection()
   try {
     const origin = apiOrigin(
       process.env.ESHOP_API_URL ??
@@ -18,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
       process.env.NODE_ENV === 'production',
     )
     const response = await fetch(origin + '/v1/store/bootstrap', {
-      cache: 'no-store',
+      next: { revalidate: 30 },
       credentials: 'omit',
       redirect: 'error',
       signal: AbortSignal.timeout(5000),

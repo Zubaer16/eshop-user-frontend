@@ -1,5 +1,91 @@
 import { test, expect } from '@playwright/test'
 
+test('returning to public pages reuses catalog and homepage data without another fetch', async ({
+  page,
+}) => {
+  await mock(page)
+  let productReads = 0,
+    homeReads = 0
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname
+    if (request.method() !== 'GET') return
+    if (path === '/v1/products') productReads++
+    if (path === '/v1/store/homepage') homeReads++
+  })
+  await page.goto('/')
+  await expect(
+    page.getByRole('heading', { name: 'Discover something new', exact: true }),
+  ).toBeVisible()
+  await page
+    .locator('footer')
+    .getByRole('link', { name: 'Shop all', exact: true })
+    .click()
+  await expect(page.locator('main article')).toHaveCount(10)
+  await page
+    .locator('footer')
+    .getByRole('link', { name: 'All categories', exact: true })
+    .click()
+  await expect(
+    page.getByRole('heading', { name: 'Shop by category', exact: true }),
+  ).toBeVisible()
+  await page
+    .locator('footer')
+    .getByRole('link', { name: 'Shop all', exact: true })
+    .click()
+  await expect(page.locator('main article')).toHaveCount(10)
+  expect(productReads).toBe(1)
+  await page
+    .locator('header')
+    .getByRole('link', { name: 'eShop home', exact: true })
+    .click()
+  await expect(
+    page.getByRole('heading', { name: 'Discover something new', exact: true }),
+  ).toBeVisible()
+  expect(homeReads).toBe(1)
+})
+
+test('explicit product refresh bypasses cached data and failed reads stay retryable', async ({
+  page,
+}) => {
+  await mock(page)
+  let reads = 0
+  await page.route('**/v1/products?**', (route) => {
+    reads++
+    if (reads === 2)
+      return route.fulfill({
+        status: 503,
+        json: { message: 'Temporarily unavailable' },
+      })
+    return route.fulfill({
+      json: {
+        items: [
+          {
+            ...products[0],
+            title: reads === 1 ? 'Before refresh' : 'After refresh',
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 12,
+        pages: 1,
+      },
+    })
+  })
+  await page.goto('/shop')
+  await expect(
+    page.getByRole('link', { name: 'Before refresh', exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole('button', { name: 'Refresh products', exact: true })
+    .click()
+  await expect(page.locator('main').getByRole('alert')).toBeVisible()
+  await page.getByRole('button', { name: 'Retry loading', exact: true }).click()
+  await expect(
+    page.getByRole('link', { name: 'After refresh', exact: true }),
+  ).toBeVisible()
+  expect(reads).toBe(3)
+})
+
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 const user = {
   id: id(99),
@@ -314,8 +400,9 @@ test('mobile shop has two product columns, keyboard filters, and a server filter
   await page.setViewportSize({ width: 390, height: 844 })
   await mock(page)
   await page.goto('/shop')
-  await expect(page.locator('#shop-filters')).toBeHidden()
   await expect(page.locator('main article')).toHaveCount(10)
+  await expect(page.locator('#shop-filters')).toHaveCount(1)
+  await expect(page.locator('#shop-filters')).toBeHidden()
   const first = await page.locator('main article').nth(0).boundingBox()
   const second = await page.locator('main article').nth(1).boundingBox()
   expect(first.y).toBe(second.y)

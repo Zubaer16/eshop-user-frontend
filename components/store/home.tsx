@@ -14,7 +14,7 @@ import {
   Sparkles,
   Tag,
 } from 'lucide-react'
-import { api } from '@/lib/api/client'
+import { readPublic } from '@/lib/api/public-data'
 import { imageUrl } from '@/lib/api/catalog'
 import { useCatalog } from '@/components/catalog/catalog-provider'
 import { finishCopy } from '@/lib/finish-copy'
@@ -370,11 +370,9 @@ function CollectionTabs({
     setLoadingSlug(activeCollection.slug)
     setDetailError('')
 
-    void api
-      .request<Collection>(
-        '/v1/store/collections/' + encodeURIComponent(activeCollection.slug),
-        { auth: false, signal: controller.signal },
-      )
+    void readPublic<Collection>(
+      '/v1/store/collections/' + encodeURIComponent(activeCollection.slug),
+    )
       .then((detail) => {
         if (!current) return
         if (

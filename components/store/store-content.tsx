@@ -1,6 +1,7 @@
 'use client'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
+import { publicData, readPublic } from '@/lib/api/public-data'
 import { Homepage } from '@/components/store/home'
 import { ProductCard } from './product-card'
 export type Asset = {
@@ -148,20 +149,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 }
 export const useStoreConfiguration = () => useContext(Context)
 export function StoreHome() {
-  const [data, setData] = useState<Home | null>(null),
+  const [data, setData] = useState<Home | null>(() =>
+      publicData.peek<Home>('/v1/store/homepage'),
+    ),
     [error, setError] = useState(''),
     [revision, setRevision] = useState(0),
     store = useStoreConfiguration()
   useEffect(() => {
     let active = true
-    const controller = new AbortController()
-    setData(null)
+    setData(publicData.peek<Home>('/v1/store/homepage'))
     setError('')
-    void api
-      .request<Home>('/v1/store/homepage', {
-        auth: false,
-        signal: controller.signal,
-      })
+    void readPublic<Home>('/v1/store/homepage', {}, revision > 0)
       .then((value) => {
         if (active) setData(value)
       })
@@ -170,7 +168,6 @@ export function StoreHome() {
       })
     return () => {
       active = false
-      controller.abort()
     }
   }, [revision])
   if (error) {
@@ -229,20 +226,21 @@ function CollectionProducts({ collection }: { collection: Collection }) {
   )
 }
 export function CollectionPage({ slug }: { slug: string }) {
-  const [data, setData] = useState<Collection | null>(null),
+  const [data, setData] = useState<Collection | null>(() =>
+      /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)
+        ? publicData.peek<Collection>('/v1/store/collections/' + slug)
+        : null,
+    ),
     [error, setError] = useState('')
   useEffect(() => {
     let active = true
-    const c = new AbortController()
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
       setError('Collection unavailable.')
       return
     }
-    void api
-      .request<Collection>('/v1/store/collections/' + slug, {
-        auth: false,
-        signal: c.signal,
-      })
+    setData(publicData.peek<Collection>('/v1/store/collections/' + slug))
+    setError('')
+    void readPublic<Collection>('/v1/store/collections/' + slug)
       .then((value) => {
         if (active) setData(value)
       })
@@ -252,7 +250,6 @@ export function CollectionPage({ slug }: { slug: string }) {
       })
     return () => {
       active = false
-      c.abort()
     }
   }, [slug])
   return (
