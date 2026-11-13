@@ -93,6 +93,57 @@ function setup(options = {}) {
   return { calls, sessions, request }
 }
 const cookie = { Cookie: 'eshop-guest-cart=' + token }
+
+test('atomic guest add forwards one stable operation with an existing capability and never reads first', async () => {
+  const f = setup(),
+    input = {
+      productId: id(3),
+      variantId: null,
+      quantity: 2,
+      requestId: id(90),
+    }
+  const response = await f.request('add', input, cookie)
+  assert.equal(response.status, 200)
+  assert.equal(f.calls.length, 1)
+  assert.equal(
+    f.calls[0].url,
+    'https://api.example.test/v1/guest-cart/items/add',
+  )
+  assert.equal(f.calls[0].method, 'POST')
+  assert.deepEqual(f.calls[0].data, input)
+  assert.equal(f.calls[0].headers['X-Guest-Cart-Token'], token)
+  assert.equal(f.calls[0].headers.Authorization, undefined)
+  assert.doesNotMatch(JSON.stringify(await response.json()), new RegExp(token))
+})
+test('first atomic guest add creates a capability, then adds; rejects missing request IDs and preview prices', async () => {
+  const f = setup(),
+    input = {
+      productId: id(3),
+      variantId: null,
+      quantity: 1,
+      requestId: id(91),
+    }
+  assert.equal(
+    (await f.request('add', { ...input, requestId: undefined })).status,
+    400,
+  )
+  assert.equal(
+    (await f.request('add', { ...input, unitPriceMinor: 1 })).status,
+    400,
+  )
+  assert.equal(f.calls.length, 0)
+  const response = await f.request('add', input)
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('set-cookie'), /HttpOnly/)
+  assert.deepEqual(
+    f.calls.map((call) => call.method),
+    ['POST', 'POST'],
+  )
+  assert.equal(
+    f.calls[1].url,
+    'https://api.example.test/v1/guest-cart/items/add',
+  )
+})
 test('guest read without a cookie does not create a cart or reveal any capability', async () => {
   const f = setup(),
     response = await f.request('read')

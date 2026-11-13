@@ -126,23 +126,25 @@ export function createGuestCartHandler(config: Config) {
       }
       const action = body.action
       if (
-        !['read', 'set', 'remove', 'clear', 'revoke', 'merge'].includes(
+        !['read', 'add', 'set', 'remove', 'clear', 'revoke', 'merge'].includes(
           String(action),
         )
       )
         throw new CartError(400, 'Invalid cart action.')
       const fields =
-        action === 'set'
-          ? ['productId', 'variantId', 'quantity']
-          : action === 'remove'
-            ? ['id']
-            : action === 'merge'
-              ? ['customerId']
-              : []
+        action === 'add'
+          ? ['productId', 'variantId', 'quantity', 'requestId']
+          : action === 'set'
+            ? ['productId', 'variantId', 'quantity']
+            : action === 'remove'
+              ? ['id']
+              : action === 'merge'
+                ? ['customerId']
+                : []
       if (Object.keys(body).some((key) => !['action', ...fields].includes(key)))
         throw new CartError(400, 'Invalid cart request fields.')
       if (
-        action === 'set' &&
+        (action === 'set' || action === 'add') &&
         (!uuid(body.productId) ||
           (body.variantId != null && !uuid(body.variantId)) ||
           !Number.isInteger(body.quantity) ||
@@ -150,6 +152,8 @@ export function createGuestCartHandler(config: Config) {
           Number(body.quantity) > 99)
       )
         throw new CartError(400, 'Invalid product, variant or quantity.')
+      if (action === 'add' && !uuid(body.requestId))
+        throw new CartError(400, 'Invalid addition request ID.')
       if (
         (action === 'remove' && !uuid(body.id)) ||
         (action === 'merge' && !uuid(body.customerId))
@@ -294,7 +298,7 @@ export function createGuestCartHandler(config: Config) {
         clear()
         return response({ guest: false, cart: quote(cart) })
       }
-      if (action === 'set' && !token) {
+      if ((action === 'set' || action === 'add') && !token) {
         const created = await upstream('/v1/guest-cart', 'POST')
         const expires = Date.parse(created.expiresAt),
           age = Math.min(14 * 86400, Math.floor((expires - now()) / 1000))
@@ -321,17 +325,24 @@ export function createGuestCartHandler(config: Config) {
           'GUEST_UNAVAILABLE',
         )
       const cart =
-        action === 'set'
-          ? await upstream('/v1/guest-cart/items', 'PUT', {
+        action === 'add'
+          ? await upstream('/v1/guest-cart/items/add', 'POST', {
               productId: body.productId,
               variantId: body.variantId ?? null,
               quantity: body.quantity,
+              requestId: body.requestId,
             })
-          : action === 'remove'
-            ? await upstream('/v1/guest-cart/items/' + body.id, 'DELETE')
-            : action === 'clear'
-              ? await upstream('/v1/guest-cart/items', 'DELETE')
-              : await upstream('/v1/guest-cart')
+          : action === 'set'
+            ? await upstream('/v1/guest-cart/items', 'PUT', {
+                productId: body.productId,
+                variantId: body.variantId ?? null,
+                quantity: body.quantity,
+              })
+            : action === 'remove'
+              ? await upstream('/v1/guest-cart/items/' + body.id, 'DELETE')
+              : action === 'clear'
+                ? await upstream('/v1/guest-cart/items', 'DELETE')
+                : await upstream('/v1/guest-cart')
       return response({ guest: true, cart: quote(cart) })
     } catch (error) {
       const failure =

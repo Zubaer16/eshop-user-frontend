@@ -96,9 +96,17 @@ export function Header() {
   const menuRef = useRef<HTMLDivElement>(null)
   const categoryTriggerRef = useRef<HTMLButtonElement>(null)
   const t = dictionary()
+  const optimisticCount =
+    shopping.pending?.action === 'add' && !shopping.busy
+      ? 0
+      : shopping.optimisticAdds.reduce(
+          (sum, row) => sum + row.selection.quantity,
+          0,
+        )
   const cartCount =
     !shopping.loading && !shopping.cartError
-      ? shopping.cart?.items.reduce((sum, item) => sum + item.quantity, 0) || 0
+      ? (shopping.cart?.items.reduce((sum, item) => sum + item.quantity, 0) ||
+          0) + optimisticCount
       : null
   const wishCount = shopping.wishlist?.count || 0
   const links = [

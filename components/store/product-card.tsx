@@ -4,9 +4,9 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { ArrowRight, Box, Heart, Plus } from 'lucide-react'
-import { api } from '@/lib/api/client'
-import { imageUrl, money, readProduct, type Product } from '@/lib/api/catalog'
-import { productSelection } from '@/lib/api/shopping'
+import { imageUrl, money, type Product } from '@/lib/api/catalog'
+import { additionPreview } from '@/lib/api/cart-preview'
+import { validateSelection } from '@/lib/api/shopping'
 import { useCommerce } from '@/components/shopping/commerce-provider'
 import { useCatalog } from '@/components/catalog/catalog-provider'
 import type { StoreProductCard } from './store-content'
@@ -20,7 +20,6 @@ export function ProductCard({
 }) {
   const shopping = useCommerce()
   const { categories } = useCatalog()
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [failedImage, setFailedImage] = useState('')
   const image = 'gallery' in product ? product.gallery[0] : product.image
@@ -39,38 +38,20 @@ export function ProductCard({
   const href = '/product/' + encodeURIComponent(product.slug)
 
   async function add() {
-    const ticket = api.getSnapshot()
-    setBusy(true)
     setError('')
     try {
-      await shopping.add(async () => {
-        const current =
-          'gallery' in product
-            ? product
-            : readProduct(
-                await api.request('/v1/products/' + product.slug, {
-                  auth: false,
-                }),
-              )
-        if (
-          api.getSnapshot().epoch !== ticket.epoch ||
-          api.getSnapshot().user?.id !== ticket.user?.id
-        )
-          throw new Error(
-            'The account changed. Please retry from the current account.',
-          )
-        if (current.id !== product.id || current.hasVariants)
-          throw new Error(
-            'Choose the current product options on its detail page.',
-          )
-        return productSelection(current, '', 1)
-      })
+      await shopping.add(
+        validateSelection({
+          productId: product.id,
+          variantId: null,
+          quantity: 1,
+        }),
+        additionPreview(product),
+      )
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : 'Could not add this product.',
       )
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -165,17 +146,15 @@ export function ProductCard({
             type="button"
             disabled={
               !available ||
-              busy ||
               shopping.loading ||
-              shopping.busy ||
-              Boolean(shopping.pending) ||
+              !shopping.canAdd ||
               Boolean(shopping.cartError)
             }
             onClick={() => void add()}
             className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-[#dce5fa] bg-[#f2f6ff] text-xs font-bold text-primary transition hover:border-primary hover:bg-primary hover:text-white disabled:opacity-40"
           >
             <Plus size={17} />
-            {busy ? 'Adding…' : available ? 'Add to cart' : 'Unavailable'}
+            {available ? 'Add to cart' : 'Unavailable'}
           </button>
         )}
         {(error || shopping.wishError || shopping.cartError) && (

@@ -1,3 +1,5 @@
+> Cart presentation in this earlier phase is superseded by [optimistic atomic Add](OPTIMISTIC_CART_ADD_2026-11-13.md). Server rendering changes remain current.
+
 # Store rendering and cart response — 2026-11-13
 
 Owner authorized frontend/backend work needed to deliver public products in the initial HTML, reuse public content and open the cart immediately, while retaining current commerce authority.

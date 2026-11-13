@@ -286,7 +286,7 @@ test('server-rendered Shop does not duplicate its initial product-list request i
 })
 
 for (const authenticated of [false, true])
-  test(`${authenticated ? 'account' : 'guest'} drawer opens before cart reads/writes finish and shows only confirmed items`, async ({
+  test(`${authenticated ? 'account' : 'guest'} optimistic Add shows item immediately, sends one atomic request and confirms in background`, async ({
     page,
     request,
   }) => {
@@ -295,16 +295,14 @@ for (const authenticated of [false, true])
         process.env.ESHOP_API_URL + '/v1/products/a5-hardcover-notebook',
       )
     ).json()
+    if (!authenticated) await page.setViewportSize({ width: 390, height: 844 })
     await mock(page, { authenticated })
     let adding = false,
-      releaseRead,
-      releaseWrite,
-      writeStarted = false
-    const readGate = new Promise((resolve) => {
-      releaseRead = resolve
-    })
-    const writeGate = new Promise((resolve) => {
-      releaseWrite = resolve
+      release,
+      reads = 0,
+      writes = []
+    const gate = new Promise((resolve) => {
+      release = resolve
     })
     const confirmed = {
       ...cart,
@@ -325,26 +323,26 @@ for (const authenticated of [false, true])
     await page.route('**/v1/products/a5-hardcover-notebook', (route) =>
       route.fulfill({ json: real }),
     )
-    await page.route('**/v1/cart', async (route) => {
-      if (adding) await readGate
-      await route.fulfill({ json: emptyCart })
+    await page.route('**/v1/cart', (route) => {
+      if (adding) reads++
+      return route.fulfill({ json: emptyCart })
     })
-    await page.route('**/v1/cart/items', async (route) => {
-      writeStarted = true
-      await writeGate
+    await page.route('**/v1/cart/items/add', async (route) => {
+      writes.push(route.request().postDataJSON())
+      await gate
       await route.fulfill({ json: confirmed })
     })
     await page.route('**/api/cart/guest', async (route) => {
-      const { action } = route.request().postDataJSON()
-      if (adding && action === 'read' && !authenticated) await readGate
-      if (action === 'set') {
-        writeStarted = true
-        await writeGate
+      const data = route.request().postDataJSON()
+      if (adding && data.action === 'read') reads++
+      if (data.action === 'add') {
+        writes.push(data)
+        await gate
       }
       await route.fulfill({
         json: {
           guest: !authenticated,
-          cart: action === 'set' ? confirmed : emptyCart,
+          cart: data.action === 'add' ? confirmed : emptyCart,
         },
       })
     })
@@ -358,27 +356,47 @@ for (const authenticated of [false, true])
       await add.click()
       const drawer = page.getByRole('dialog', { name: 'Your cart' })
       await expect(drawer).toBeVisible({ timeout: 1000 })
-      await expect(drawer.getByText(/Updating your cart/)).toBeVisible()
-      expect(writeStarted).toBe(false)
       await expect(
-        drawer.getByText('Your cart is empty', { exact: true }),
-      ).toHaveCount(0)
+        drawer.getByRole('heading', { name: real.title, exact: true }),
+      ).toBeVisible()
+      await expect(drawer.getByText('Syncing…', { exact: true })).toBeVisible()
       await expect(
-        drawer.getByText('Cart change confirmed.', { exact: false }),
-      ).toHaveCount(0)
-      releaseRead()
-      await expect.poll(() => writeStarted).toBe(true)
+        drawer.getByText('Estimated subtotal', { exact: true }),
+      ).toBeVisible()
       await expect(
         drawer.getByText('Cart change confirmed.', { exact: false }),
       ).toHaveCount(0)
-      releaseWrite()
+      if (!authenticated)
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        ).toBe(true)
+      if (authenticated)
+        await expect(
+          drawer.getByRole('button', {
+            name: 'Continue to checkout',
+            exact: true,
+          }),
+        ).toBeDisabled()
+      await expect.poll(() => writes.length).toBe(1)
+      expect(writes[0]).toMatchObject({
+        productId: real.id,
+        variantId: null,
+        quantity: 1,
+      })
+      expect(writes[0].requestId).toMatch(/^[a-f0-9-]{36}$/)
+      expect(reads).toBe(0)
+      release()
       await expect(
         drawer.getByText('Cart change confirmed.', { exact: false }),
       ).toBeVisible()
-      await expect(drawer.getByText(real.title, { exact: true })).toBeVisible()
+      await expect(
+        drawer.getByRole('region', { name: 'Cart additions syncing' }),
+      ).toHaveCount(0)
+      expect(writes.length).toBe(1)
     } finally {
-      releaseRead()
-      releaseWrite()
+      release()
       await page.unrouteAll({ behavior: 'wait' })
     }
   })
@@ -787,15 +805,17 @@ test('product options and quantity keep canonical identity and reject a failed w
   ).toHaveValue('2')
   const write = page.waitForRequest(
     (r) =>
-      r.method() === 'PUT' && new URL(r.url()).pathname === '/v1/cart/items',
+      r.method() === 'POST' &&
+      new URL(r.url()).pathname === '/v1/cart/items/add',
   )
   await add.click()
   const mutation = await write
-  expect(mutation.postDataJSON()).toEqual({
+  expect(mutation.postDataJSON()).toMatchObject({
     productId: real.id,
     variantId: variant.id,
     quantity: 2,
   })
+  expect(mutation.postDataJSON().requestId).toMatch(/^[a-f0-9-]{36}$/)
   await expect(
     page.getByRole('dialog', { name: 'Your cart' }).getByRole('alert'),
   ).toContainText('Controlled write blocked')
@@ -893,28 +913,31 @@ test('catalog failure shows recovery UI without substituting sample products', a
   await expect(page.locator('main article')).toHaveCount(0)
 })
 
-test('homepage card opens the drawer while product verification is still pending', async ({
+test('homepage Add needs no product lookup or cart read before its atomic write', async ({
   page,
 }) => {
   await mock(page)
-  let release,
-    writes = 0
+  let adding = false,
+    lookups = 0,
+    reads = 0,
+    writes = 0,
+    release
   const gate = new Promise((resolve) => {
     release = resolve
   })
-  await page.route('**/v1/products/live-product-1', async (route) => {
-    await gate
-    await route.fulfill({
-      status: 503,
-      json: { message: 'Verification unavailable' },
-    })
-  })
   page.on('request', (request) => {
-    if (
-      new URL(request.url()).pathname === '/api/cart/guest' &&
-      request.postDataJSON()?.action === 'set'
-    )
+    const path = new URL(request.url()).pathname
+    if (adding && path.startsWith('/v1/products/')) lookups++
+  })
+  await page.route('**/api/cart/guest', async (route) => {
+    const data = route.request().postDataJSON()
+    if (adding && data.action === 'read') reads++
+    if (data.action === 'add') {
       writes++
+      await gate
+      return route.fulfill({ status: 409, json: { message: 'Stock changed' } })
+    }
+    return route.fulfill({ json: { guest: false, cart: emptyCart } })
   })
   try {
     await openControlled(page, '/')
@@ -923,17 +946,224 @@ test('homepage card opens the drawer while product verification is still pending
       .first()
       .getByRole('button', { name: 'Add to cart', exact: true })
     await expect(add).toBeEnabled()
+    adding = true
     await add.click()
     const drawer = page.getByRole('dialog', { name: 'Your cart' })
-    await expect(drawer).toBeVisible({ timeout: 1000 })
-    await expect(drawer.getByText(/Updating your cart/)).toBeVisible()
-    expect(writes).toBe(0)
-    release()
-    await expect(drawer.getByRole('alert')).toBeVisible()
     await expect(
-      drawer.getByText('Cart change confirmed.', { exact: false }),
+      drawer.getByText('Estimated subtotal', { exact: true }),
+    ).toBeVisible()
+    await expect(
+      drawer.getByRole('heading', { name: products[0].title, exact: true }),
+    ).toBeVisible()
+    await expect.poll(() => writes).toBe(1)
+    expect(reads).toBe(0)
+    expect(lookups).toBe(0)
+    const more = drawer.getByRole('button', {
+      name: 'Add one more ' + products[0].title,
+      exact: true,
+    })
+    await more.click()
+    await more.click()
+    await expect(drawer.getByText('Quantity: 3', { exact: true })).toBeVisible()
+    release()
+    await expect(drawer.getByRole('alert')).toContainText('Stock changed')
+    await expect(
+      drawer.getByText('Estimated subtotal', { exact: true }),
     ).toHaveCount(0)
-    expect(writes).toBe(0)
+    await expect(
+      drawer.getByRole('region', { name: 'Cart additions syncing' }),
+    ).toHaveCount(0)
+    await expect(
+      drawer.getByRole('button', { name: 'Retry same cart change' }),
+    ).toHaveCount(0)
+    expect(writes).toBe(1)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+function confirmedCart(quantity) {
+  return {
+    ...cart,
+    items: [
+      {
+        ...cart.items[0],
+        quantity,
+        lineTotalMinor: products[0].priceMinor * quantity,
+      },
+    ],
+    subtotalMinor: products[0].priceMinor * quantity,
+  }
+}
+
+test('rapid additions batch behind the in-flight add and a closed drawer stays closed', async ({
+  page,
+}, info) => {
+  await mock(page, { authenticated: true })
+  let release,
+    serverQuantity = 0
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const writes = []
+  await page.route('**/v1/cart', (route) => route.fulfill({ json: emptyCart }))
+  await page.route('**/v1/cart/items/add', async (route) => {
+    const body = route.request().postDataJSON()
+    writes.push(body)
+    if (writes.length === 1) await gate
+    serverQuantity += body.quantity
+    await route.fulfill({ json: confirmedCart(serverQuantity) })
+  })
+  try {
+    await openControlled(page, '/')
+    await page
+      .locator('#collection-panel article')
+      .first()
+      .getByRole('button', { name: 'Add to cart', exact: true })
+      .click()
+    const drawer = page.getByRole('dialog', { name: 'Your cart' })
+    await expect.poll(() => writes.length).toBe(1)
+    const more = drawer.getByRole('button', {
+      name: 'Add one more ' + products[0].title,
+      exact: true,
+    })
+    await more.click()
+    await more.click()
+    await expect(drawer.getByText('Quantity: 3', { exact: true })).toBeVisible()
+    expect(writes.length).toBe(1)
+    await page.screenshot({ path: info.outputPath('optimistic-cart.png') })
+    await drawer
+      .getByRole('button', { name: 'Close panel', exact: true })
+      .click()
+    release()
+    await expect.poll(() => writes.length).toBe(2)
+    await expect(page.getByRole('dialog', { name: 'Your cart' })).toHaveCount(0)
+    await page
+      .getByRole('button', { name: 'Open cart, 3 items', exact: true })
+      .click()
+    await expect(
+      page.getByRole('region', { name: 'Cart additions syncing' }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByLabel('Quantity for ' + products[0].sku, { exact: true }),
+    ).toHaveValue('3')
+    expect(writes.map((body) => body.quantity)).toEqual([1, 2])
+    expect(writes[0].requestId).not.toBe(writes[1].requestId)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('uncertain Add pauses and explicit retry reuses the request ID without double-counting', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  const writes = []
+  let applied = false
+  await page.route('**/v1/cart', (route) =>
+    route.fulfill({ json: applied ? confirmedCart(1) : emptyCart }),
+  )
+  await page.route('**/v1/cart/items/add', (route) => {
+    writes.push(route.request().postDataJSON())
+    applied = true
+    return route.fulfill(
+      writes.length === 1
+        ? { status: 503, json: { message: 'Uncertain response' } }
+        : { json: confirmedCart(1) },
+    )
+  })
+  await openControlled(page, '/')
+  await page
+    .locator('#collection-panel article')
+    .first()
+    .getByRole('button', { name: 'Add to cart', exact: true })
+    .click()
+  const drawer = page.getByRole('dialog', { name: 'Your cart' })
+  const retry = drawer.getByRole('button', {
+    name: 'Retry same cart change',
+    exact: true,
+  })
+  await expect(retry).toBeEnabled()
+  await expect(
+    drawer.getByText('Confirmation needed', { exact: true }),
+  ).toBeVisible()
+  expect(writes.length).toBe(1)
+  await expect(
+    drawer.getByText('Estimated subtotal', { exact: true }),
+  ).toHaveCount(0)
+  await drawer
+    .getByRole('button', { name: 'Refresh cart', exact: true })
+    .click()
+  await expect(
+    page.locator('header button[aria-label="Open cart, 1 items"]'),
+  ).toHaveCount(1)
+  await expect(retry).toBeEnabled()
+  await retry.click()
+  await expect(
+    drawer.getByText('Cart change confirmed.', { exact: false }),
+  ).toBeVisible()
+  await expect(
+    drawer.getByRole('region', { name: 'Cart additions syncing' }),
+  ).toHaveCount(0)
+  expect(writes).toHaveLength(2)
+  expect(writes[1]).toEqual(writes[0])
+  await expect(
+    page.getByLabel('Quantity for ' + products[0].sku, { exact: true }),
+  ).toHaveValue('1')
+})
+
+test('account switch removes optimistic data and cancels unsent additions', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let release,
+    writes = 0
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/cart', (route) => route.fulfill({ json: emptyCart }))
+  await page.route('**/v1/cart/items/add', async (route) => {
+    writes++
+    await gate
+    await route.fulfill({ json: confirmedCart(1) }).catch(() => {})
+  })
+  try {
+    await openControlled(page, '/')
+    await page
+      .locator('#collection-panel article')
+      .first()
+      .getByRole('button', { name: 'Add to cart', exact: true })
+      .click()
+    const drawer = page.getByRole('dialog', { name: 'Your cart' })
+    await expect.poll(() => writes).toBe(1)
+    await drawer
+      .getByRole('button', {
+        name: 'Add one more ' + products[0].title,
+        exact: true,
+      })
+      .click()
+    await page.evaluate(() => {
+      const channel = new BroadcastChannel('eshop-auth-customer')
+      channel.postMessage({ type: 'logout', source: 'controlled-other-tab' })
+      channel.close()
+    })
+    await expect(drawer).toHaveCount(0)
+    await page
+      .getByRole('button', { name: 'Open cart, 0 items', exact: true })
+      .click()
+    await expect(
+      drawer.getByText('Guest cart on this browser', { exact: true }),
+    ).toBeVisible()
+    await expect(
+      drawer.getByRole('region', { name: 'Cart additions syncing' }),
+    ).toHaveCount(0)
+    release()
+    await expect(
+      drawer.getByText('Your cart is empty', { exact: true }),
+    ).toBeVisible()
+    expect(writes).toBe(1)
   } finally {
     release()
     await page.unrouteAll({ behavior: 'wait' })

@@ -17,6 +17,7 @@ import {
   ShoppingBag,
 } from 'lucide-react'
 import { usePublicProduct } from '@/hooks/use-public-product'
+import { additionPreview, estimateAdditions } from '@/lib/api/cart-preview'
 import { ProductCard } from '@/components/store/product-card'
 import { money, imageUrl } from '@/lib/api/catalog'
 import {
@@ -93,7 +94,10 @@ export function ProductActions({
   async function add() {
     setError('')
     try {
-      await shopping.add(productSelection(product, variantId, quantity))
+      await shopping.add(
+        productSelection(product, variantId, quantity),
+        additionPreview(product, variantId),
+      )
     } catch (error) {
       setError(
         error instanceof Error ? error.message : 'Could not add this product.',
@@ -151,8 +155,7 @@ export function ProductActions({
           className={actionClass + ' w-full'}
           disabled={
             shopping.loading ||
-            shopping.busy ||
-            Boolean(shopping.pending) ||
+            !shopping.canAdd ||
             !available ||
             unavailable ||
             !Number.isInteger(quantity) ||
@@ -175,7 +178,7 @@ export function ProductActions({
           Refresh cart and saved items
         </button>
       )}
-      {shopping.pending && (
+      {shopping.pending && !shopping.busy && (
         <Link
           href="/cart"
           className="block text-sm font-bold text-primary"
@@ -329,6 +332,34 @@ function Lines({
 export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
   const shopping = useCommerce(),
     quote = shopping.cart
+  const [previewError, setPreviewError] = useState('')
+  const additions = shopping.optimisticAdds
+  const uncertain = Boolean(
+    shopping.pending?.action === 'add' && !shopping.busy,
+  )
+  const estimate = estimateAdditions(quote, additions)
+  const grouped = [
+    ...additions
+      .reduce((groups, item) => {
+        const key =
+          item.selection.productId + ':' + (item.selection.variantId || '')
+        const existing = groups.get(key)
+        if (existing) existing.quantity += item.selection.quantity
+        else groups.set(key, { ...item, quantity: item.selection.quantity })
+        return groups
+      }, new Map<string, (typeof additions)[number] & { quantity: number }>())
+      .values(),
+  ]
+  const matching = (line: CartLine) =>
+    additions.some(
+      (row) =>
+        row.selection.productId === line.productId &&
+        row.selection.variantId === line.variantId,
+    )
+  const visibleQuote =
+    quote && additions.length
+      ? { ...quote, items: quote.items.filter((line) => !matching(line)) }
+      : quote
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
@@ -345,7 +376,7 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
           Refresh cart
         </button>
       </div>
-      <ErrorMessage text={shopping.cartError} />
+      <ErrorMessage text={previewError || shopping.cartError} />
       {shopping.busy && (
         <p
           role="status"
@@ -353,6 +384,96 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
         >
           Updating your cart… Confirming current prices and availability.
         </p>
+      )}
+      {additions.length > 0 && (
+        <section aria-label="Cart additions syncing" className="space-y-3">
+          {grouped.map((item) => {
+            const base =
+              quote?.items.find(
+                (line) =>
+                  line.productId === item.selection.productId &&
+                  line.variantId === item.selection.variantId,
+              )?.quantity || 0
+            const src = imageUrl(item.preview.image?.url)
+            return (
+              <article
+                key={item.selection.productId + ':' + item.selection.variantId}
+                className="flex gap-4 rounded-2xl border border-blue-100 bg-white p-4"
+              >
+                {src && (
+                  <img
+                    src={src}
+                    srcSet={item.preview.image?.srcSet}
+                    sizes="96px"
+                    alt={item.preview.image?.alt || item.preview.title}
+                    width={80}
+                    height={80}
+                    className="size-20 rounded-xl bg-canvas object-contain"
+                  />
+                )}
+                <div className="min-w-0">
+                  <h2 className="break-words font-extrabold">
+                    {item.preview.title}
+                  </h2>
+                  <p className="mt-1 text-xs text-muted">
+                    {item.preview.sku ||
+                      (item.selection.variantId
+                        ? 'Selected variant'
+                        : 'Simple product')}
+                  </p>
+                  <p className="mt-2 text-sm font-bold">
+                    {uncertain
+                      ? 'Requested addition: +' + item.quantity
+                      : 'Quantity: ' + (base + item.quantity)}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-primary">
+                    {uncertain ? 'Confirmation needed' : 'Syncing…'}
+                  </p>
+                  <button
+                    type="button"
+                    aria-label={'Add one more ' + item.preview.title}
+                    disabled={
+                      !shopping.canAdd ||
+                      uncertain ||
+                      base + item.quantity >= 99
+                    }
+                    className="mt-3 rounded-lg border border-line px-3 py-2 text-xs font-bold text-primary disabled:opacity-40"
+                    onClick={() => {
+                      setPreviewError('')
+                      void shopping
+                        .add({ ...item.selection, quantity: 1 }, item.preview)
+                        .catch((error) =>
+                          setPreviewError(
+                            error instanceof Error
+                              ? error.message
+                              : 'Could not add another item.',
+                          ),
+                        )
+                    }}
+                  >
+                    +1
+                  </button>
+                </div>
+              </article>
+            )
+          })}
+          {!uncertain && (
+            <div className="rounded-2xl bg-blue-50 p-4 text-sm">
+              <div className="flex flex-wrap justify-between gap-3 font-extrabold">
+                <span>Estimated subtotal</span>
+                <span>
+                  {estimate.currency && estimate.subtotalMinor !== null
+                    ? money(estimate.subtotalMinor, estimate.currency)
+                    : 'Awaiting confirmation'}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-muted">
+                Updating prices and availability. Final totals are confirmed
+                before checkout.
+              </p>
+            </div>
+          )}
+        </section>
       )}
       {shopping.notice && (
         <p
@@ -365,8 +486,8 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
       {shopping.pending && !shopping.busy && (
         <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-sm">
-            A cart change is unconfirmed. The same absolute quantity/removal is
-            retained for explicit retry.
+            A cart change is unconfirmed. Retry the same operation to check it
+            without adding twice.
           </p>
           <div className="flex flex-wrap gap-3">
             <button
@@ -403,8 +524,8 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
         <p className="text-sm text-muted">
           Your cart could not be loaded. No sample items are substituted.
         </p>
-      ) : shopping.busy && !quote?.items.length ? null : !quote?.items
-          .length ? (
+      ) : additions.length && !visibleQuote?.items.length ? null : !visibleQuote
+          ?.items.length ? (
         <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-[#fbfcff] p-6 text-center">
           <ShoppingBag size={44} className="mb-5 text-primary" />
           <h2 className="font-bold">Your cart is empty</h2>
@@ -424,41 +545,47 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
               : 'space-y-5'
           }
         >
-          <Lines quote={quote} />
-          <aside className="h-fit space-y-4 rounded-2xl border border-border bg-[#fbfcff] p-6">
-            <h2 className="text-lg font-extrabold">Order summary</h2>
-            <div className="flex justify-between font-bold">
-              <span>Available-items subtotal</span>
-              <span>
-                {quote.currency
-                  ? money(quote.subtotalMinor, quote.currency)
-                  : 'Unavailable'}
-              </span>
-            </div>
-            <p className="mt-3 text-xs text-muted">
-              Server quote: {quote.quotedAt}. This is not a payable amount.
-              Tax/shipping and reservations are calculated during checkout.
-            </p>
-            {quote.issues.length > 0 && (
-              <p role="status" className="mt-3 text-sm text-amber-800">
-                Some items cannot currently be purchased. Review the line
-                statuses.
-              </p>
-            )}
-            <button
-              className="mt-4 text-sm font-bold text-red-700 disabled:opacity-50"
-              disabled={shopping.busy || Boolean(shopping.pending)}
-              onClick={() => {
-                if (window.confirm('Clear all items in this cart?'))
-                  void shopping.clear()
-              }}
+          <Lines quote={visibleQuote!} />
+          {quote && (
+            <aside
+              hidden={additions.length > 0}
+              className="h-fit space-y-4 rounded-2xl border border-border bg-[#fbfcff] p-6"
             >
-              Clear cart
-            </button>
-            {fullPage && <CartContinue />}
-          </aside>
+              <h2 className="text-lg font-extrabold">Order summary</h2>
+              <div className="flex justify-between font-bold">
+                <span>Available-items subtotal</span>
+                <span>
+                  {quote.currency
+                    ? money(quote.subtotalMinor, quote.currency)
+                    : 'Unavailable'}
+                </span>
+              </div>
+              <p className="mt-3 text-xs text-muted">
+                Server quote: {quote.quotedAt}. This is not a payable amount.
+                Tax/shipping and reservations are calculated during checkout.
+              </p>
+              {quote.issues.length > 0 && (
+                <p role="status" className="mt-3 text-sm text-amber-800">
+                  Some items cannot currently be purchased. Review the line
+                  statuses.
+                </p>
+              )}
+              <button
+                className="mt-4 text-sm font-bold text-red-700 disabled:opacity-50"
+                disabled={shopping.busy || Boolean(shopping.pending)}
+                onClick={() => {
+                  if (window.confirm('Clear all items in this cart?'))
+                    void shopping.clear()
+                }}
+              >
+                Clear cart
+              </button>
+              {fullPage && <CartContinue />}
+            </aside>
+          )}
         </div>
       )}
+      {fullPage && additions.length > 0 && <CartContinue />}
       {shopping.authenticated &&
         shopping.guest &&
         shopping.guest.items.length > 0 && (
@@ -532,7 +659,9 @@ export function CartDrawer() {
         <div className="border-b border-slate-200 px-6 py-6">
           <SheetTitle className="text-xl font-black">Your cart</SheetTitle>
           <SheetDescription className="mt-2 text-xs text-muted">
-            Current server prices and stock; no reservation or payment yet.
+            {shopping.optimisticAdds.length
+              ? 'Syncing your items. Estimates may change before checkout.'
+              : 'Current server prices and stock; no reservation or payment yet.'}
           </SheetDescription>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -650,13 +779,25 @@ function CartContinue() {
     <>
       {shopping.authenticated ? (
         <div>
-          <Link
-            href="/checkout"
-            className={actionClass + ' w-full'}
-            onClick={() => shopping.setCartOpen(false)}
-          >
-            Continue to checkout
-          </Link>
+          {shopping.busy ||
+          shopping.pending ||
+          shopping.optimisticAdds.length ? (
+            <button
+              type="button"
+              disabled
+              className={actionClass + ' w-full opacity-50'}
+            >
+              Continue to checkout
+            </button>
+          ) : (
+            <Link
+              href="/checkout"
+              className={actionClass + ' w-full'}
+              onClick={() => shopping.setCartOpen(false)}
+            >
+              Continue to checkout
+            </Link>
+          )}
           <p className="mt-2 text-xs text-muted">
             Resolve guest items and unconfirmed changes before reserving stock.
           </p>

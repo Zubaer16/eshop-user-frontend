@@ -23,7 +23,7 @@ export function shoppingLock<T>(work: () => Promise<T>): Promise<T> {
   return result
 }
 export async function guestCartRequest<T>(
-  action: 'read' | 'set' | 'remove' | 'clear' | 'revoke' | 'merge',
+  action: 'read' | 'add' | 'set' | 'remove' | 'clear' | 'revoke' | 'merge',
   body: Record<string, unknown> = {},
   guard: () => void = () => undefined,
 ): Promise<T> {

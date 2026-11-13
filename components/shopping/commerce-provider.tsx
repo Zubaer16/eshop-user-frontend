@@ -8,7 +8,6 @@ import {
   shoppingLock,
 } from '@/lib/api/guest-cart-client'
 import {
-  nextQuantity,
   readCart,
   readWishlist,
   validateSelection,
@@ -16,6 +15,7 @@ import {
   type CartSelection,
   type Wishlist,
 } from '@/lib/api/shopping'
+import type { AddPreview, OptimisticAddition } from '@/lib/api/cart-preview'
 import type { Session } from '@/lib/api/runtime'
 
 const keyOf = (session: Session) =>
@@ -23,11 +23,11 @@ const keyOf = (session: Session) =>
 type Pending = {
   owner: string
   guest: boolean
-  action: 'set' | 'remove' | 'clear'
+  action: 'add' | 'set' | 'remove' | 'clear'
   selection?: CartSelection
   id?: string
+  requestId?: string
 }
-type AddSelection = CartSelection | (() => Promise<CartSelection>)
 type State = {
   owner: string
   cart: CartQuote | null
@@ -45,7 +45,9 @@ type Commerce = State & {
   busy: boolean
   pending: Pending | null
   reload: () => void
-  add: (selection: AddSelection) => Promise<boolean>
+  add: (selection: CartSelection, preview: AddPreview) => Promise<boolean>
+  optimisticAdds: OptimisticAddition[]
+  canAdd: boolean
   setQuantity: (selection: CartSelection) => Promise<boolean>
   remove: (id: string) => Promise<boolean>
   setGuestQuantity: (selection: CartSelection) => Promise<boolean>
@@ -95,6 +97,10 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     [pending, setPending] = useState<Pending | null>(null)
   const pendingRef = useRef<Pending | null>(null),
     writing = useRef('')
+  const [optimisticAdds, setOptimisticAdds] = useState<OptimisticAddition[]>([])
+  const addQueue = useRef<OptimisticAddition[]>([])
+  const activeAdd = useRef<OptimisticAddition | null>(null)
+  const addTimer = useRef<number | undefined>(undefined)
   const generation = useRef(0)
   const view = state.owner === owner ? state : blank(owner)
   function guard(ticket: string) {
@@ -210,16 +216,26 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     pendingRef.current = null
     setPending(null)
     setCartOpen(false)
+    window.clearTimeout(addTimer.current)
+    addTimer.current = undefined
+    addQueue.current = []
+    activeAdd.current = null
+    setOptimisticAdds([])
+    return () => window.clearTimeout(addTimer.current)
   }, [owner])
   useEffect(() => {
-    if (!pending || pending.owner !== owner) return
+    if (
+      (!pending || pending.owner !== owner) &&
+      !optimisticAdds.some((row) => row.owner === owner)
+    )
+      return
     const leaving = (event: BeforeUnloadEvent) => {
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', leaving)
     return () => window.removeEventListener('beforeunload', leaving)
-  }, [pending, owner])
+  }, [pending, owner, optimisticAdds])
   async function quoteFor(ticket: string, guest: boolean) {
     return guest
       ? await readGuest(ticket)
@@ -230,40 +246,55 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     if (change.guest) {
       const result = await guestCartRequest<{ cart: unknown }>(
         change.action,
-        change.action === 'set'
-          ? { ...change.selection! }
-          : change.action === 'remove'
-            ? { id: change.id }
-            : {},
+        change.action === 'add'
+          ? { ...change.selection!, requestId: change.requestId }
+          : change.action === 'set'
+            ? { ...change.selection! }
+            : change.action === 'remove'
+              ? { id: change.id }
+              : {},
         () => guard(change.owner),
       )
       return readCart(result.cart)
     }
     return readCart(
       await api.request(
-        change.action === 'set'
-          ? '/v1/cart/items'
-          : change.action === 'remove'
-            ? '/v1/cart/items/' + change.id
-            : '/v1/cart',
+        change.action === 'add'
+          ? '/v1/cart/items/add'
+          : change.action === 'set'
+            ? '/v1/cart/items'
+            : change.action === 'remove'
+              ? '/v1/cart/items/' + change.id
+              : '/v1/cart',
         {
-          method: change.action === 'set' ? 'PUT' : 'DELETE',
-          ...(change.action === 'set' ? { body: change.selection } : {}),
+          method:
+            change.action === 'add'
+              ? 'POST'
+              : change.action === 'set'
+                ? 'PUT'
+                : 'DELETE',
+          ...(change.action === 'add'
+            ? { body: { ...change.selection, requestId: change.requestId } }
+            : change.action === 'set'
+              ? { body: change.selection }
+              : {}),
         },
       ),
     )
   }
   async function cartChange(
     action: Pending['action'],
-    selection?: AddSelection,
+    selection?: CartSelection,
     id?: string,
-    adding = false,
     retrying = false,
     forceGuest = false,
+    addition?: OptimisticAddition,
   ) {
     const ticket = owner
     if (
       writing.current === ticket ||
+      (action !== 'add' &&
+        (activeAdd.current || addQueue.current.length > 0)) ||
       view.loading ||
       (retrying && !pendingRef.current)
     )
@@ -278,29 +309,20 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     writing.current = ticket
     setBusyOwner(ticket)
     update(ticket, { cartError: '', notice: '' })
-    if (adding) setCartOpen(true)
     try {
       return await shoppingLock(async () => {
         guard(ticket)
         let change = retrying ? pendingRef.current : null
         if (!change) {
-          let desired = selection
-            ? validateSelection(
-                typeof selection === 'function' ? await selection() : selection,
-              )
-            : undefined
+          const desired = selection ? validateSelection(selection) : undefined
           guard(ticket)
-          if (adding && desired) {
-            const quote = await quoteFor(ticket, !authenticated)
-            guard(ticket)
-            if (quote) desired = nextQuantity(quote, desired)
-          }
           change = {
             owner: ticket,
             guest: forceGuest || !authenticated,
             action,
             selection: desired,
             id,
+            ...(action === 'add' ? { requestId: addition!.requestId } : {}),
           }
           pendingWrite(change)
         }
@@ -310,6 +332,13 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         try {
           quote = await execute(change)
         } catch (error) {
+          if (
+            action === 'add' &&
+            error instanceof ApiRequestError &&
+            [400, 401, 403, 404, 409, 422, 429].includes(error.status) &&
+            pendingRef.current?.owner === ticket
+          )
+            pendingWrite(null)
           if (
             change.action !== 'remove' ||
             !(error instanceof ApiRequestError) ||
@@ -347,6 +376,121 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
       if (writing.current === ticket) writing.current = ''
       setBusyOwner((previous) => (previous === ticket ? '' : previous))
     }
+  }
+  function publishAdds() {
+    const current = keyOf(api.getSnapshot())
+    setOptimisticAdds(
+      [
+        ...(activeAdd.current ? [activeAdd.current] : []),
+        ...addQueue.current,
+      ].filter((row) => row.owner === current),
+    )
+  }
+  function finishAdd(operation: OptimisticAddition, confirmed: boolean) {
+    if (
+      keyOf(api.getSnapshot()) !== operation.owner ||
+      activeAdd.current !== operation
+    )
+      return
+    if (confirmed) {
+      activeAdd.current = null
+      publishAdds()
+      if (addQueue.current.length) scheduleAdds(0)
+    } else if (!pendingRef.current) {
+      if (addQueue.current.length)
+        update(operation.owner, {
+          notice:
+            'Unsent additions were cancelled. Review the cart and add them again.',
+        })
+      activeAdd.current = null
+      addQueue.current = []
+      publishAdds()
+    }
+  }
+  function scheduleAdds(delay = 180) {
+    if (addTimer.current !== undefined || activeAdd.current) return
+    addTimer.current = window.setTimeout(() => {
+      addTimer.current = undefined
+      const operation = addQueue.current.shift()
+      if (!operation || operation.owner !== keyOf(api.getSnapshot())) return
+      activeAdd.current = operation
+      publishAdds()
+      void cartChange(
+        'add',
+        operation.selection,
+        undefined,
+        false,
+        false,
+        operation,
+      ).then((confirmed) => finishAdd(operation, confirmed))
+    }, delay)
+  }
+  async function add(selection: CartSelection, preview: AddPreview) {
+    guard(owner)
+    if (
+      view.loading ||
+      (writing.current && !activeAdd.current) ||
+      (pendingRef.current && !writing.current)
+    )
+      return false
+    const desired = validateSelection(selection)
+    const additions = [
+      ...(activeAdd.current ? [activeAdd.current] : []),
+      ...addQueue.current,
+    ]
+    const current =
+      view.cart?.items.find(
+        (row) =>
+          row.productId === desired.productId &&
+          row.variantId === desired.variantId,
+      )?.quantity || 0
+    const queued = additions
+      .filter(
+        (row) =>
+          row.selection.productId === desired.productId &&
+          row.selection.variantId === desired.variantId,
+      )
+      .reduce((sum, row) => sum + row.selection.quantity, 0)
+    if (current + queued + desired.quantity > 99)
+      throw new Error('Cart line quantity cannot exceed 99.')
+    const last = addQueue.current.at(-1)
+    if (
+      last &&
+      last.owner === owner &&
+      last.selection.productId === desired.productId &&
+      last.selection.variantId === desired.variantId
+    ) {
+      last.selection = {
+        ...last.selection,
+        quantity: last.selection.quantity + desired.quantity,
+      }
+      last.preview = preview
+    } else {
+      if (additions.length >= 50)
+        throw new Error('Please wait for the current cart additions to sync.')
+      addQueue.current.push({
+        owner,
+        requestId: crypto.randomUUID(),
+        selection: desired,
+        preview,
+      })
+    }
+    update(owner, { cartError: '', notice: '' })
+    publishAdds()
+    setCartOpen(true)
+    scheduleAdds()
+    return true
+  }
+  async function retryChange() {
+    const operation = activeAdd.current
+    const confirmed = await cartChange(
+      pendingRef.current?.action === 'add' ? 'add' : 'set',
+      undefined,
+      undefined,
+      true,
+    )
+    if (operation) finishAdd(operation, confirmed)
+    return confirmed
   }
   async function guestAction(merge: boolean) {
     const ticket = owner
@@ -444,19 +588,31 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         authenticated,
         cartOpen,
         setCartOpen,
-        busy: busyOwner === owner,
+        busy:
+          busyOwner === owner ||
+          (optimisticAdds.some((row) => row.owner === owner) && !pending),
+        optimisticAdds: optimisticAdds.filter((row) => row.owner === owner),
+        canAdd:
+          ready &&
+          !view.loading &&
+          (!writing.current || Boolean(activeAdd.current)) &&
+          (!pending || busyOwner === owner),
         pending: pending?.owner === owner ? pending : null,
         reload,
-        add: (selection) => cartChange('set', selection, undefined, true),
+        add,
         setQuantity: (selection) => cartChange('set', selection),
         remove: (id) => cartChange('remove', undefined, id),
         setGuestQuantity: (selection) =>
-          cartChange('set', selection, undefined, false, false, true),
-        removeGuest: (id) =>
-          cartChange('remove', undefined, id, false, false, true),
+          cartChange('set', selection, undefined, false, true),
+        removeGuest: (id) => cartChange('remove', undefined, id, false, true),
         clear: () => cartChange('clear'),
-        retry: () => cartChange('set', undefined, undefined, false, true),
+        retry: retryChange,
         discardPending: () => {
+          window.clearTimeout(addTimer.current)
+          addTimer.current = undefined
+          addQueue.current = []
+          activeAdd.current = null
+          setOptimisticAdds([])
           pendingWrite(null)
           update(owner, {
             cartError: '',
