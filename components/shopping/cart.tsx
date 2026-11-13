@@ -346,6 +346,14 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
         </button>
       </div>
       <ErrorMessage text={shopping.cartError} />
+      {shopping.busy && (
+        <p
+          role="status"
+          className="rounded-xl bg-blue-50 p-4 text-sm text-primary"
+        >
+          Updating your cart… Confirming current prices and availability.
+        </p>
+      )}
       {shopping.notice && (
         <p
           role="status"
@@ -354,7 +362,7 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
           {shopping.notice}
         </p>
       )}
-      {shopping.pending && (
+      {shopping.pending && !shopping.busy && (
         <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-sm">
             A cart change is unconfirmed. The same absolute quantity/removal is
@@ -395,7 +403,8 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
         <p className="text-sm text-muted">
           Your cart could not be loaded. No sample items are substituted.
         </p>
-      ) : !quote?.items.length ? (
+      ) : shopping.busy && !quote?.items.length ? null : !quote?.items
+          .length ? (
         <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-[#fbfcff] p-6 text-center">
           <ShoppingBag size={44} className="mb-5 text-primary" />
           <h2 className="font-bold">Your cart is empty</h2>

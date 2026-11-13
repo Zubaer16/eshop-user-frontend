@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Shop } from '@/components/catalog/catalog'
 import { normalizeShopParams } from '@/lib/api/catalog'
+import { publicShop } from '@/lib/api/public-catalog'
 
 export const metadata: Metadata = {
   title: 'Explore Products',
@@ -27,5 +28,13 @@ export default async function ShopPage({
 }) {
   const params = await searchParams
   const normalized = normalizeShopParams(params)
-  return <Shop key={JSON.stringify(normalized)} params={normalized} />
+  const initial = await publicShop(normalized).catch(() => null)
+  return (
+    <Shop
+      key={JSON.stringify(normalized)}
+      params={normalized}
+      initial={initial}
+      expiresAt={Date.now() + 30000}
+    />
+  )
 }

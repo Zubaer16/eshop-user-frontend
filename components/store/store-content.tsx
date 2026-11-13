@@ -148,16 +148,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   )
 }
 export const useStoreConfiguration = () => useContext(Context)
-export function StoreHome() {
-  const [data, setData] = useState<Home | null>(() =>
-      publicData.peek<Home>('/v1/store/homepage'),
+export function StoreHome({
+  initial = null,
+  expiresAt = 0,
+}: {
+  initial?: Home | null
+  expiresAt?: number
+}) {
+  const [data, setData] = useState<Home | null>(
+      () => publicData.peek<Home>('/v1/store/homepage') || initial,
     ),
     [error, setError] = useState(''),
     [revision, setRevision] = useState(0),
     store = useStoreConfiguration()
   useEffect(() => {
     let active = true
-    setData(publicData.peek<Home>('/v1/store/homepage'))
+    if (initial && revision === 0)
+      publicData.seed('/v1/store/homepage', {}, initial, expiresAt)
     setError('')
     void readPublic<Home>('/v1/store/homepage', {}, revision > 0)
       .then((value) => {
@@ -169,7 +176,7 @@ export function StoreHome() {
     return () => {
       active = false
     }
-  }, [revision])
+  }, [revision, initial, expiresAt])
   if (error) {
     return (
       <section className="container-shell py-12">
@@ -225,10 +232,19 @@ function CollectionProducts({ collection }: { collection: Collection }) {
     </div>
   )
 }
-export function CollectionPage({ slug }: { slug: string }) {
+export function CollectionPage({
+  slug,
+  initial = null,
+  expiresAt = 0,
+}: {
+  slug: string
+  initial?: Collection | null
+  expiresAt?: number
+}) {
   const [data, setData] = useState<Collection | null>(() =>
       /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)
-        ? publicData.peek<Collection>('/v1/store/collections/' + slug)
+        ? publicData.peek<Collection>('/v1/store/collections/' + slug) ||
+          initial
         : null,
     ),
     [error, setError] = useState('')
@@ -238,7 +254,8 @@ export function CollectionPage({ slug }: { slug: string }) {
       setError('Collection unavailable.')
       return
     }
-    setData(publicData.peek<Collection>('/v1/store/collections/' + slug))
+    if (initial)
+      publicData.seed('/v1/store/collections/' + slug, {}, initial, expiresAt)
     setError('')
     void readPublic<Collection>('/v1/store/collections/' + slug)
       .then((value) => {
@@ -251,7 +268,7 @@ export function CollectionPage({ slug }: { slug: string }) {
     return () => {
       active = false
     }
-  }, [slug])
+  }, [slug, initial, expiresAt])
   return (
     <section className="container-shell space-y-6 py-10">
       {error ? (

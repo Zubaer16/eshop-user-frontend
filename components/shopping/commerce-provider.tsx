@@ -27,6 +27,7 @@ type Pending = {
   selection?: CartSelection
   id?: string
 }
+type AddSelection = CartSelection | (() => Promise<CartSelection>)
 type State = {
   owner: string
   cart: CartQuote | null
@@ -44,7 +45,7 @@ type Commerce = State & {
   busy: boolean
   pending: Pending | null
   reload: () => void
-  add: (selection: CartSelection) => Promise<boolean>
+  add: (selection: AddSelection) => Promise<boolean>
   setQuantity: (selection: CartSelection) => Promise<boolean>
   remove: (id: string) => Promise<boolean>
   setGuestQuantity: (selection: CartSelection) => Promise<boolean>
@@ -254,7 +255,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   }
   async function cartChange(
     action: Pending['action'],
-    selection?: CartSelection,
+    selection?: AddSelection,
     id?: string,
     adding = false,
     retrying = false,
@@ -277,12 +278,18 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     writing.current = ticket
     setBusyOwner(ticket)
     update(ticket, { cartError: '', notice: '' })
+    if (adding) setCartOpen(true)
     try {
       return await shoppingLock(async () => {
         guard(ticket)
         let change = retrying ? pendingRef.current : null
         if (!change) {
-          let desired = selection ? validateSelection(selection) : undefined
+          let desired = selection
+            ? validateSelection(
+                typeof selection === 'function' ? await selection() : selection,
+              )
+            : undefined
+          guard(ticket)
           if (adding && desired) {
             const quote = await quoteFor(ticket, !authenticated)
             guard(ticket)
@@ -324,7 +331,6 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
           notice:
             'Cart change confirmed. Prices and availability were recalculated.',
         })
-        if (adding) setCartOpen(true)
         announce()
         return true
       })

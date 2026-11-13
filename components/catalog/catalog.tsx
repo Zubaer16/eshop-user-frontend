@@ -38,7 +38,9 @@ function CatalogImage({
   image,
   title,
   className = '',
+  priority = false,
 }: {
+  priority?: boolean
   image?: GalleryImage
   title: string
   className?: string
@@ -53,7 +55,8 @@ function CatalogImage({
       alt={image?.alt || title}
       width={image?.width}
       height={image?.height}
-      loading="lazy"
+      loading={priority ? 'eager' : 'lazy'}
+      fetchPriority={priority ? 'high' : 'auto'}
       onError={() => setFailed(true)}
       className={className + ' object-contain'}
     />
@@ -151,15 +154,23 @@ export function Categories() {
     </section>
   )
 }
-export function Shop({ params }: { params: ShopQuery }) {
+export function Shop({
+  params,
+  initial = null,
+  expiresAt = 0,
+}: {
+  params: ShopQuery
+  initial?: Page<Product> | null
+  expiresAt?: number
+}) {
   const router = useRouter(),
     catalog = useCatalog(),
     [data, setData] = useState<Page<Product> | null>(() => {
       try {
         const cached = publicData.peek('/v1/products', shopQuery(params))
-        return cached ? readPage(cached, readProduct) : null
+        return cached ? readPage(cached, readProduct) : initial
       } catch {
-        return null
+        return initial
       }
     }),
     [error, setError] = useState(''),
@@ -191,6 +202,8 @@ export function Shop({ params }: { params: ShopQuery }) {
     async function load() {
       try {
         const query = shopQuery(JSON.parse(key))
+        if (initial && revision === 0)
+          publicData.seed('/v1/products', query, initial, expiresAt)
         const result = readPage(
           await readPublic('/v1/products', query, revision > 0),
           readProduct,
@@ -216,7 +229,7 @@ export function Shop({ params }: { params: ShopQuery }) {
       clearInterval(timer)
       window.removeEventListener('focus', focus)
     }
-  }, [key, revision])
+  }, [key, revision, initial, expiresAt])
   function navigate(values: ShopQuery) {
     const query = new URLSearchParams()
     for (const [key, value] of Object.entries(values))
@@ -404,8 +417,12 @@ export function Shop({ params }: { params: ShopQuery }) {
                 {Math.max(1, data.pages)}
               </p>
               <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3">
-                {data.items.map((product) => (
-                  <ProductCard key={product.id} product={product} />
+                {data.items.map((product, index) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    priority={index < 4}
+                  />
                 ))}
               </div>
               {!data.items.length && (
@@ -537,6 +554,7 @@ export function ProductDetails({ initial }: { initial: Product }) {
         <div className="grid gap-9 md:grid-cols-2 md:gap-10 lg:gap-16">
           <div>
             <CatalogImage
+              priority
               key={
                 product.gallery[image]?.id || product.gallery[0]?.id || 'empty'
               }

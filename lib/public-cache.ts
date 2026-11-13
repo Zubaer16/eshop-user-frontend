@@ -29,6 +29,17 @@ export function createPublicCache({
     while (entries.size > limit) entries.delete(entries.keys().next().value!)
   }
   return {
+    seed<T>(route: string, query: Query, value: T, expires: number) {
+      const key = publicKey(route, query),
+        existing = entries.get(key)
+      if (
+        expires <= now() ||
+        existing?.pending ||
+        (existing && existing.expires > now())
+      )
+        return
+      touch(key, { value, expires: Math.min(expires, now() + ttl) })
+    },
     peek<T>(route: string, query: Query = {}): T | null {
       const key = publicKey(route, query),
         entry = entries.get(key)

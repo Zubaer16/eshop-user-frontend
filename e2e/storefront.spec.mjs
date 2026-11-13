@@ -1,5 +1,17 @@
 import { test, expect } from '@playwright/test'
 
+async function openControlled(page, path) {
+  await page.goto(path)
+  if (path === '/')
+    await page
+      .getByRole('button', { name: 'Refresh featured content', exact: true })
+      .click()
+  if (path === '/shop')
+    await page
+      .getByRole('button', { name: 'Refresh products', exact: true })
+      .click()
+}
+
 test('returning to public pages reuses catalog and homepage data without another fetch', async ({
   page,
 }) => {
@@ -12,15 +24,20 @@ test('returning to public pages reuses catalog and homepage data without another
     if (path === '/v1/products') productReads++
     if (path === '/v1/store/homepage') homeReads++
   })
-  await page.goto('/')
+  await openControlled(page, '/')
   await expect(
     page.getByRole('heading', { name: 'Discover something new', exact: true }),
   ).toBeVisible()
+  const firstHomeReads = homeReads
   await page
     .locator('footer')
     .getByRole('link', { name: 'Shop all', exact: true })
     .click()
+  await page
+    .getByRole('button', { name: 'Refresh products', exact: true })
+    .click()
   await expect(page.locator('main article')).toHaveCount(10)
+  const firstProductReads = productReads
   await page
     .locator('footer')
     .getByRole('link', { name: 'All categories', exact: true })
@@ -33,7 +50,7 @@ test('returning to public pages reuses catalog and homepage data without another
     .getByRole('link', { name: 'Shop all', exact: true })
     .click()
   await expect(page.locator('main article')).toHaveCount(10)
-  expect(productReads).toBe(1)
+  expect(productReads).toBe(firstProductReads)
   await page
     .locator('header')
     .getByRole('link', { name: 'eShop home', exact: true })
@@ -41,7 +58,7 @@ test('returning to public pages reuses catalog and homepage data without another
   await expect(
     page.getByRole('heading', { name: 'Discover something new', exact: true }),
   ).toBeVisible()
-  expect(homeReads).toBe(1)
+  expect(homeReads).toBe(firstHomeReads)
 })
 
 test('explicit product refresh bypasses cached data and failed reads stay retryable', async ({
@@ -71,7 +88,7 @@ test('explicit product refresh bypasses cached data and failed reads stay retrya
       },
     })
   })
-  await page.goto('/shop')
+  await openControlled(page, '/shop')
   await expect(
     page.getByRole('link', { name: 'Before refresh', exact: true }),
   ).toBeVisible()
@@ -144,7 +161,15 @@ const products = Array.from({ length: 10 }, (_, index) => ({
   tag: 'new',
 }))
 const collectionProducts = products.map((p) => ({
-  ...p,
+  id: p.id,
+  slug: p.slug,
+  title: p.title,
+  currency: p.currency,
+  priceMinor: p.priceMinor,
+  compareAtMinor: p.compareAtMinor,
+  badge: p.badge,
+  tag: p.tag,
+  hasVariants: p.hasVariants,
   image,
   availableQuantity: 10,
 }))
@@ -216,6 +241,147 @@ const cart = {
     },
   ],
 }
+
+test('public products render in Home, Shop and collection HTML with JavaScript disabled', async ({
+  browser,
+  request,
+}) => {
+  const response = await request.get(
+    process.env.ESHOP_API_URL + '/v1/store/homepage',
+  )
+  expect(response.ok()).toBe(true)
+  const home = await response.json()
+  const context = await browser.newContext({ javaScriptEnabled: false })
+  const page = await context.newPage()
+  try {
+    await page.goto('/')
+    await expect(
+      page.locator('#collection-panel article').first(),
+    ).toBeVisible()
+    await page.goto('/shop')
+    await expect(page.locator('main article').first()).toBeVisible()
+    if (home.collections[0]) {
+      await page.goto('/collections/' + home.collections[0].slug)
+      await expect(page.locator('main article').first()).toBeVisible()
+    }
+  } finally {
+    await context.close()
+  }
+})
+
+test('server-rendered Shop does not duplicate its initial product-list request in the browser', async ({
+  page,
+}) => {
+  await mock(page)
+  let reads = 0
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/v1/products') reads++
+  })
+  await page.goto('/shop')
+  await expect(page.locator('main article').first()).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Add to cart', exact: true }).first(),
+  ).toBeEnabled()
+  expect(reads).toBe(0)
+})
+
+for (const authenticated of [false, true])
+  test(`${authenticated ? 'account' : 'guest'} drawer opens before cart reads/writes finish and shows only confirmed items`, async ({
+    page,
+    request,
+  }) => {
+    const real = await (
+      await request.get(
+        process.env.ESHOP_API_URL + '/v1/products/a5-hardcover-notebook',
+      )
+    ).json()
+    await mock(page, { authenticated })
+    let adding = false,
+      releaseRead,
+      releaseWrite,
+      writeStarted = false
+    const readGate = new Promise((resolve) => {
+      releaseRead = resolve
+    })
+    const writeGate = new Promise((resolve) => {
+      releaseWrite = resolve
+    })
+    const confirmed = {
+      ...cart,
+      items: [
+        {
+          ...cart.items[0],
+          productId: real.id,
+          title: real.title,
+          sku: real.sku,
+          unitPriceMinor: real.priceMinor,
+          lineTotalMinor: real.priceMinor,
+          currency: real.currency,
+        },
+      ],
+      currency: real.currency,
+      subtotalMinor: real.priceMinor,
+    }
+    await page.route('**/v1/products/a5-hardcover-notebook', (route) =>
+      route.fulfill({ json: real }),
+    )
+    await page.route('**/v1/cart', async (route) => {
+      if (adding) await readGate
+      await route.fulfill({ json: emptyCart })
+    })
+    await page.route('**/v1/cart/items', async (route) => {
+      writeStarted = true
+      await writeGate
+      await route.fulfill({ json: confirmed })
+    })
+    await page.route('**/api/cart/guest', async (route) => {
+      const { action } = route.request().postDataJSON()
+      if (adding && action === 'read' && !authenticated) await readGate
+      if (action === 'set') {
+        writeStarted = true
+        await writeGate
+      }
+      await route.fulfill({
+        json: {
+          guest: !authenticated,
+          cart: action === 'set' ? confirmed : emptyCart,
+        },
+      })
+    })
+    try {
+      await page.goto('/product/a5-hardcover-notebook')
+      const add = page
+        .getByRole('button', { name: 'Add to cart', exact: true })
+        .first()
+      await expect(add).toBeEnabled()
+      adding = true
+      await add.click()
+      const drawer = page.getByRole('dialog', { name: 'Your cart' })
+      await expect(drawer).toBeVisible({ timeout: 1000 })
+      await expect(drawer.getByText(/Updating your cart/)).toBeVisible()
+      expect(writeStarted).toBe(false)
+      await expect(
+        drawer.getByText('Your cart is empty', { exact: true }),
+      ).toHaveCount(0)
+      await expect(
+        drawer.getByText('Cart change confirmed.', { exact: false }),
+      ).toHaveCount(0)
+      releaseRead()
+      await expect.poll(() => writeStarted).toBe(true)
+      await expect(
+        drawer.getByText('Cart change confirmed.', { exact: false }),
+      ).toHaveCount(0)
+      releaseWrite()
+      await expect(
+        drawer.getByText('Cart change confirmed.', { exact: false }),
+      ).toBeVisible()
+      await expect(drawer.getByText(real.title, { exact: true })).toBeVisible()
+    } finally {
+      releaseRead()
+      releaseWrite()
+      await page.unrouteAll({ behavior: 'wait' })
+    }
+  })
 
 async function mock(
   page,
@@ -336,7 +502,7 @@ for (const width of [390, 768, 1440]) {
   }, info) => {
     await page.setViewportSize({ width, height: 1000 })
     await mock(page)
-    await page.goto('/')
+    await openControlled(page, '/')
     await expect(
       page.getByRole('heading', {
         name: 'Discover something new',
@@ -373,7 +539,7 @@ test('explicit branding overrides both primary and hover; one banner spans the h
   page,
 }) => {
   await mock(page, { configured: true, singleBanner: true })
-  await page.goto('/')
+  await openControlled(page, '/')
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -399,7 +565,7 @@ test('mobile shop has two product columns, keyboard filters, and a server filter
 }, info) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mock(page)
-  await page.goto('/shop')
+  await openControlled(page, '/shop')
   await expect(page.locator('main article')).toHaveCount(10)
   await expect(page.locator('#shop-filters')).toHaveCount(1)
   await expect(page.locator('#shop-filters')).toBeHidden()
@@ -416,13 +582,9 @@ test('mobile shop has two product columns, keyboard filters, and a server filter
   ).toBeFocused()
   await page.getByRole('button', { name: 'Filters', exact: true }).click()
   await page.getByLabel('Category', { exact: true }).selectOption('audio')
-  const request = page.waitForRequest(
-    (r) =>
-      r.url().includes('/v1/products?') &&
-      new URL(r.url()).searchParams.get('category') === 'audio',
-  )
   await page.getByRole('button', { name: 'Apply filters' }).click()
-  await request
+  await expect(page).toHaveURL(/category=audio/)
+  await expect(page.locator('#shop-filters')).toHaveCount(1)
   await expect(page.locator('#shop-filters')).toBeHidden()
   await page.screenshot({
     path: info.outputPath('shop-mobile.png'),
@@ -634,9 +796,9 @@ test('product options and quantity keep canonical identity and reject a failed w
     variantId: variant.id,
     quantity: 2,
   })
-  await expect(page.locator('main').getByRole('alert')).toContainText(
-    'Controlled write blocked',
-  )
+  await expect(
+    page.getByRole('dialog', { name: 'Your cart' }).getByRole('alert'),
+  ).toContainText('Controlled write blocked')
   await page.screenshot({
     path: info.outputPath('product-options.png'),
     fullPage: true,
@@ -723,10 +885,57 @@ test('catalog failure shows recovery UI without substituting sample products', a
   await page.route('**/v1/products?**', (route) =>
     route.fulfill({ status: 503, json: { message: 'Unavailable' } }),
   )
-  await page.goto('/shop')
+  await openControlled(page, '/shop')
   await expect(page.locator('main').getByRole('alert')).toBeVisible()
   await expect(
     page.getByRole('button', { name: 'Retry loading', exact: true }),
   ).toBeVisible()
   await expect(page.locator('main article')).toHaveCount(0)
+})
+
+test('homepage card opens the drawer while product verification is still pending', async ({
+  page,
+}) => {
+  await mock(page)
+  let release,
+    writes = 0
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/products/live-product-1', async (route) => {
+    await gate
+    await route.fulfill({
+      status: 503,
+      json: { message: 'Verification unavailable' },
+    })
+  })
+  page.on('request', (request) => {
+    if (
+      new URL(request.url()).pathname === '/api/cart/guest' &&
+      request.postDataJSON()?.action === 'set'
+    )
+      writes++
+  })
+  try {
+    await openControlled(page, '/')
+    const add = page
+      .locator('#collection-panel article')
+      .first()
+      .getByRole('button', { name: 'Add to cart', exact: true })
+    await expect(add).toBeEnabled()
+    await add.click()
+    const drawer = page.getByRole('dialog', { name: 'Your cart' })
+    await expect(drawer).toBeVisible({ timeout: 1000 })
+    await expect(drawer.getByText(/Updating your cart/)).toBeVisible()
+    expect(writes).toBe(0)
+    release()
+    await expect(drawer.getByRole('alert')).toBeVisible()
+    await expect(
+      drawer.getByText('Cart change confirmed.', { exact: false }),
+    ).toHaveCount(0)
+    expect(writes).toBe(0)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
 })

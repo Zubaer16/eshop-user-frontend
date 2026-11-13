@@ -2,6 +2,23 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createPublicCache } from '../lib/public-cache.ts'
 
+test('server snapshots seed only their remaining lifetime without replacing newer browser data', async () => {
+  let now = 100
+  const cache = createPublicCache({ now: () => now, ttl: 30 })
+  cache.seed('/v1/store/homepage', {}, 'server', 115)
+  assert.equal(
+    await cache.get('/v1/store/homepage', {}, async () => 'unexpected'),
+    'server',
+  )
+  now = 116
+  assert.equal(cache.peek('/v1/store/homepage'), null)
+  await cache.get('/v1/store/homepage', {}, async () => 'newer')
+  cache.seed('/v1/store/homepage', {}, 'older', 120)
+  assert.equal(cache.peek('/v1/store/homepage'), 'newer')
+  cache.seed('/v1/products', {}, 'expired', 110)
+  assert.equal(cache.peek('/v1/products'), null)
+})
+
 test('public reads share requests and reuse data only within the freshness window', async () => {
   let time = 0,
     calls = 0,

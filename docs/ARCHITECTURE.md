@@ -13,3 +13,5 @@ Mutations retain auth, ownership, exact minor-unit amounts, explicit variants, i
 Controlled API responses exist in tests only. See [E2E guide](E2E_TESTING.md), [consolidation](STOREFRONT_CONSOLIDATION.md) and Master Docs for validation/deployment boundaries.
 
 Public navigation uses a bounded 30-second browser-memory cache with in-flight deduplication; explicit refresh bypasses it. Private/cart/checkout/order/auth data is excluded. Public bootstrap metadata uses 30-second server revalidation; product detail remains request-time and commerce authority is unchanged. See [loading correction](NAVIGATION_LOADING_2026-11-13.md).
+
+Home/Shop/collection content now arrives in server HTML using existing public APIs with 30-second revalidation, then seeds the public browser cache without extending expired snapshots. Cart drawers open before verification/network completion and show progress; only confirmed API results change items/totals. See [rendering and cart response](STORE_RENDERING_AND_CART_RESPONSE_2026-11-13.md).

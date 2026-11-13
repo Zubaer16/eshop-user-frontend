@@ -13,8 +13,10 @@ import type { StoreProductCard } from './store-content'
 
 export function ProductCard({
   product,
+  priority = false,
 }: {
   product: Product | StoreProductCard
+  priority?: boolean
 }) {
   const shopping = useCommerce()
   const { categories } = useCatalog()
@@ -41,24 +43,28 @@ export function ProductCard({
     setBusy(true)
     setError('')
     try {
-      const current =
-        'gallery' in product
-          ? product
-          : readProduct(
-              await api.request('/v1/products/' + product.slug, {
-                auth: false,
-              }),
-            )
-      if (
-        api.getSnapshot().epoch !== ticket.epoch ||
-        api.getSnapshot().user?.id !== ticket.user?.id
-      )
-        return
-      if (current.id !== product.id || current.hasVariants)
-        throw new Error(
-          'Choose the current product options on its detail page.',
+      await shopping.add(async () => {
+        const current =
+          'gallery' in product
+            ? product
+            : readProduct(
+                await api.request('/v1/products/' + product.slug, {
+                  auth: false,
+                }),
+              )
+        if (
+          api.getSnapshot().epoch !== ticket.epoch ||
+          api.getSnapshot().user?.id !== ticket.user?.id
         )
-      await shopping.add(productSelection(current, '', 1))
+          throw new Error(
+            'The account changed. Please retry from the current account.',
+          )
+        if (current.id !== product.id || current.hasVariants)
+          throw new Error(
+            'Choose the current product options on its detail page.',
+          )
+        return productSelection(current, '', 1)
+      })
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : 'Could not add this product.',
@@ -83,7 +89,8 @@ export function ProductCard({
             alt={image?.alt || product.title}
             width={image?.width}
             height={image?.height}
-            loading="lazy"
+            loading={priority ? 'eager' : 'lazy'}
+            decoding="async"
             onError={() => setFailedImage(src)}
             className="h-full w-full object-contain p-4 transition-transform duration-500 group-hover:scale-105"
           />
