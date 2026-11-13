@@ -16,7 +16,6 @@ import {
   type CartSelection,
   type Wishlist,
 } from '@/lib/api/shopping'
-import { isPreviewMode } from '@/lib/integration-mode'
 import type { Session } from '@/lib/api/runtime'
 
 const keyOf = (session: Session) =>
@@ -136,7 +135,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     }
   }
   useEffect(() => {
-    if (isPreviewMode || !ready || session.status === 'checking') return
+    if (!ready || session.status === 'checking') return
     const ticket = owner
     let active = true
     setState((previous) =>

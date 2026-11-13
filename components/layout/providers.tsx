@@ -3,13 +3,9 @@
 import { AuthProvider } from '@/components/auth/auth-provider'
 import { CatalogProvider } from '@/components/catalog/catalog-provider'
 import { CommerceProvider } from '@/components/shopping/commerce-provider'
-import { LiveCartDrawer } from '@/components/shopping/cart'
-import { isPreviewMode } from '@/lib/integration-mode'
-import { StoreProvider } from '@/components/store/live-store'
+import { CartDrawer } from '@/components/shopping/cart'
+import { StoreProvider } from '@/components/store/store-content'
 import { PushLifecycle } from '@/components/notifications/push-lifecycle'
-import { Toaster } from 'sonner'
-import { StoreHydrator } from '@/hooks/use-store-ready'
-import { CartDrawer } from '@/components/store/cart-drawer'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -18,11 +14,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <PushLifecycle />
         <CommerceProvider>
           <CatalogProvider>
-            {isPreviewMode && <StoreHydrator />}
             {children}
-            {isPreviewMode && <CartDrawer />}
-            {!isPreviewMode && <LiveCartDrawer />}
-            <Toaster richColors closeButton position="top-right" />
+            <CartDrawer />
           </CatalogProvider>
         </CommerceProvider>
       </AuthProvider>

@@ -2,7 +2,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { api } from '@/lib/api/client'
 import { readCategories, type Category } from '@/lib/api/catalog'
-import { isPreviewMode } from '@/lib/integration-mode'
 const Context = createContext<{
   categories: Category[]
   loading: boolean
@@ -11,11 +10,10 @@ const Context = createContext<{
 }>({ categories: [], loading: true, error: '', reload: () => undefined })
 export function CatalogProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<Category[]>([]),
-    [loading, setLoading] = useState(!isPreviewMode),
+    [loading, setLoading] = useState(true),
     [error, setError] = useState(''),
     [revision, setRevision] = useState(0)
   useEffect(() => {
-    if (isPreviewMode) return
     const controller = new AbortController()
     let active = true
     const load = async () => {

@@ -1,14 +1,13 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import { ProductDetails } from '@/components/store/product-details'
-import { findProduct, products } from '@/lib/catalog'
-import { isPreviewMode } from '@/lib/integration-mode'
-import { publicProduct } from '@/lib/api/public-catalog'
-import { LiveProduct } from '@/components/catalog/catalog'
 import Link from 'next/link'
+import { publicProduct } from '@/lib/api/public-catalog'
+import { ProductDetails } from '@/components/catalog/catalog'
 
-export function generateStaticParams() {
-  return isPreviewMode ? products.map(({ slug }) => ({ slug })) : []
+// Published slugs require request-time catalog reads, including after deployment.
+export const dynamic = 'force-dynamic'
+function validSlug(slug: string) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > 200) notFound()
 }
 export async function generateMetadata({
   params,
@@ -16,32 +15,20 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>
 }): Promise<Metadata> {
   const { slug } = await params
-  if (!isPreviewMode) {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > 200)
-      notFound()
-    let product
-    try {
-      product = await publicProduct(slug)
-    } catch {
-      return {
-        title: 'Product unavailable',
-        robots: { index: false, follow: false },
-      }
-    }
-    // Resolve absence before response streaming commits a successful status.
-    if (!product) notFound()
+  validSlug(slug)
+  let product
+  try {
+    product = await publicProduct(slug)
+  } catch {
     return {
-      title: product.title,
-      description: product.description,
+      title: 'Product unavailable',
       robots: { index: false, follow: false },
     }
   }
-  const product = findProduct(slug)
+  if (!product) notFound()
   return {
-    title: product?.title ?? 'Product not found',
-    description: product
-      ? `${product.description} Storefront preview only; no live orders.`
-      : 'Product unavailable.',
+    title: product.title,
+    description: product.description,
     robots: { index: false, follow: false },
   }
 }
@@ -51,31 +38,23 @@ export default async function ProductPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
-  if (!isPreviewMode) {
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length > 200)
-      notFound()
-    let product
-    try {
-      product = await publicProduct(slug)
-    } catch {
-      return (
-        <section className="container-shell py-14">
-          <h1 className="text-3xl font-black">
-            Product temporarily unavailable
-          </h1>
-          <p role="alert" className="mt-4 text-sm text-muted">
-            The catalog service could not be reached. Please try again.
-          </p>
-          <Link href="/shop" className="mt-5 block font-bold text-primary">
-            Back to products
-          </Link>
-        </section>
-      )
-    }
-    if (!product) notFound()
-    return <LiveProduct key={product.id} initial={product} />
+  validSlug(slug)
+  let product
+  try {
+    product = await publicProduct(slug)
+  } catch {
+    return (
+      <section className="container-shell py-14">
+        <h1 className="text-3xl font-black">Product temporarily unavailable</h1>
+        <p role="alert" className="mt-4 text-sm text-muted">
+          The catalog service could not be reached. Please try again.
+        </p>
+        <Link href="/shop" className="mt-5 block font-bold text-primary">
+          Back to products
+        </Link>
+      </section>
+    )
   }
-  const product = findProduct(slug)
   if (!product) notFound()
-  return <ProductDetails product={product} />
+  return <ProductDetails key={product.id} initial={product} />
 }

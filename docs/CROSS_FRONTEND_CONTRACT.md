@@ -1,5 +1,7 @@
 # Admin ↔ Storefront Data Contract
 
+**2026-11-13 consolidation:** the Storefront now has one API-backed UI. The draft fixture adapters/types and sample-only UI referenced in older sections below are retired. Actual projections are `lib/api/catalog.ts`, `shopping.ts`, `checkout.ts` and `orders.ts`; store content is `components/store/store-content.tsx`. See [the current consolidation record](STOREFRONT_CONSOLIDATION.md). Backend source audits now inspect these actual types; there is no alternate runtime mode.
+
 This document records the current source-level contract between the separate eShop Admin and Customer Storefront applications. The Backend remains authoritative for catalog, media, publication, pricing, availability, cart, checkout and order state.
 
 ## Current live Storefront integration (2026-11-12)

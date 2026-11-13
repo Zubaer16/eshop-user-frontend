@@ -19,7 +19,7 @@ import {
   ErrorMessage,
 } from '@/components/shopping/cart'
 
-export function LiveOrderHistory() {
+export function OrderHistory() {
   const [page, setPage] = useState(1),
     [data, setData] = useState<OrderPage | null>(null),
     [error, setError] = useState(''),
@@ -195,7 +195,7 @@ export function TrackingTimeline({ tracking }: { tracking: Tracking }) {
     </section>
   )
 }
-export function LiveOrderDetail({ id }: { id: string }) {
+export function OrderDetail({ id }: { id: string }) {
   const resource = useOrderResource(id),
     [lineId, setLineId] = useState(''),
     [quantity, setQuantity] = useState('1'),
@@ -434,7 +434,7 @@ export function LiveOrderDetail({ id }: { id: string }) {
     </section>
   )
 }
-export function LiveTracking() {
+export function OrderTracking() {
   const [draft, setDraft] = useState(''),
     [id, setId] = useState(''),
     [error, setError] = useState('')

@@ -6,49 +6,21 @@ import Link from 'next/link'
 import {
   ArrowRight,
   ArrowUpRight,
-  Baby,
   BadgeCheck,
-  BookOpen,
   Box,
   ChevronRight,
-  Dumbbell,
   Globe2,
   HeartHandshake,
-  Headphones,
-  House,
-  Shirt,
-  ShoppingBasket,
   Sparkles,
   Tag,
-  type LucideIcon,
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
-import { imageUrl, money, type Category } from '@/lib/api/catalog'
+import { imageUrl } from '@/lib/api/catalog'
 import { useCatalog } from '@/components/catalog/catalog-provider'
 import { finishCopy } from '@/lib/finish-copy'
-import type { Collection, Home } from '@/components/store/live-store'
-
-const categoryIcons: Record<string, LucideIcon> = {
-  electronics: Headphones,
-  fashion: Shirt,
-  'beauty-personal-care': Sparkles,
-  'home-kitchen': House,
-  'sports-outdoors': Dumbbell,
-  grocery: ShoppingBasket,
-  'books-stationery': BookOpen,
-  'toys-baby': Baby,
-}
-
-const categoryTints = [
-  '#EAF0FF',
-  '#FFF0E9',
-  '#F0EEFC',
-  '#EDF8F0',
-  '#F9EEFB',
-  '#FFF5D9',
-  '#EAF8FA',
-  '#FCEAF1',
-]
+import { ProductCard } from './product-card'
+import { CategoryTile } from './category-tile'
+import type { Collection, Home } from '@/components/store/store-content'
 
 function safeStorePath(value: string) {
   return (
@@ -63,7 +35,7 @@ function HeroBanner({ banner }: { banner: Home['banners'][number] }) {
 
   return (
     <article
-      className={`relative isolate min-h-[520px] overflow-hidden rounded-[28px] border border-border md:min-h-[440px] ${src ? 'bg-white' : 'bg-gradient-to-br from-[#123fae] via-[#2459e8] to-[#6b8cfc] text-white'}`}
+      className={`relative isolate min-h-[470px] overflow-hidden rounded-[28px] border border-border sm:min-h-[480px] bg-gradient-to-br from-[#123fae] via-[#2459e8] to-[#6b8cfc] text-white`}
     >
       {src ? (
         <>
@@ -79,18 +51,20 @@ function HeroBanner({ banner }: { banner: Home['banners'][number] }) {
               decoding="async"
               className="h-full w-full object-cover object-center"
             />
-            <div className="absolute inset-0 bg-gradient-to-r from-white via-white/95 via-[40%] to-white/0" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#123fae] via-[#2459e8]/90 via-[38%] to-[#2459e8]/10" />
           </div>
-          <div className="absolute inset-x-0 bottom-0 top-[56%] md:hidden">
+          <div className="absolute inset-0 md:hidden">
             <img
               src={src}
+              srcSet={banner.image?.srcSet}
+              sizes="100vw"
               alt=""
               width={banner.image?.width}
               height={banner.image?.height}
               decoding="async"
-              className="h-full w-full object-cover object-[68%_center]"
+              className="h-full w-full object-cover object-[68%_center] opacity-35"
             />
-            <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white via-white/65 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#123fae] via-[#2459e8]/70 to-transparent" />
           </div>
         </>
       ) : (
@@ -114,15 +88,12 @@ function HeroBanner({ banner }: { banner: Home['banners'][number] }) {
       )}
 
       <div
-        className={`relative z-10 flex min-h-[520px] flex-col justify-start px-6 pb-[250px] pt-9 sm:px-9 md:min-h-[440px] md:w-[57%] md:justify-center md:px-10 md:py-12 md:pb-12 xl:px-12 ${src ? 'text-ink' : 'text-white'}`}
+        className={`relative z-10 flex min-h-[470px] flex-col justify-start px-6 pb-11 pt-9 sm:px-9 sm:min-h-[480px] md:w-[57%] md:justify-center md:px-10 md:py-12 md:pb-12 xl:px-12 text-white`}
       >
         <span
-          className={`mb-5 inline-flex w-fit items-center gap-2 rounded-full border px-3.5 py-2 text-[10px] font-extrabold uppercase tracking-[.16em] ${src ? 'border-primary/15 bg-white/85 text-primary shadow-sm backdrop-blur' : 'border-white/25 bg-white/10 text-white'}`}
+          className={`mb-5 inline-flex w-fit items-center gap-2 rounded-full border px-3.5 py-2 text-[10px] font-extrabold uppercase tracking-[.16em] border-white/25 bg-white/10 text-white`}
         >
-          <Sparkles
-            size={14}
-            className={src ? 'text-[#e0a52b]' : 'text-[#ffde8a]'}
-          />
+          <Sparkles size={14} className="text-[#ffde8a]" />
           Discover
         </span>
         <h1 className="max-w-[560px] text-[36px] font-black leading-[1.08] tracking-[-.055em] sm:text-[44px] md:text-[42px] xl:text-[52px]">
@@ -130,7 +101,7 @@ function HeroBanner({ banner }: { banner: Home['banners'][number] }) {
         </h1>
         {banner.subtitle && (
           <p
-            className={`mt-4 max-w-[390px] text-sm leading-7 sm:text-[15px] ${src ? 'text-[#52617a]' : 'text-[#e6edff]'}`}
+            className={`mt-4 max-w-[390px] text-sm leading-7 sm:text-[15px] text-[#e6edff]`}
           >
             {banner.subtitle}
           </p>
@@ -139,21 +110,21 @@ function HeroBanner({ banner }: { banner: Home['banners'][number] }) {
           <div className="mt-7 flex flex-wrap items-center gap-4">
             <Link
               href={href}
-              className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-5 py-3 text-sm font-extrabold shadow-sm transition hover:-translate-y-0.5 ${src ? 'bg-primary text-white hover:bg-primary-hover' : 'bg-white text-primary hover:bg-[#edf2ff]'}`}
+              className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-5 py-3 text-sm font-extrabold shadow-sm transition hover:-translate-y-0.5 bg-white text-[#2459e8] hover:bg-[#edf2ff]`}
             >
               {banner.ctaText}
               <ArrowUpRight size={17} />
             </Link>
             <Link
               href="/categories"
-              className={`inline-flex items-center gap-2 text-sm font-extrabold hover:underline ${src ? 'text-ink' : 'text-white'}`}
+              className={`inline-flex items-center gap-2 text-sm font-extrabold hover:underline text-white`}
             >
               Explore categories <ArrowRight size={16} />
             </Link>
           </div>
         )}
         <p
-          className={`mt-8 flex items-center gap-2 text-[11px] font-semibold ${src ? 'text-[#68758c]' : 'text-white/75'}`}
+          className={`mt-8 flex items-center gap-2 text-[11px] font-semibold text-white/75`}
         >
           <Globe2 size={14} /> Explore a world of everyday finds
         </p>
@@ -174,10 +145,10 @@ function PromoBannerCard({
   const tone =
     index % 2 === 0
       ? {
-          surface: '#EAF0FF',
-          eyebrow: '#6479b4',
-          title: '#263d70',
-          action: '#3158b7',
+          surface: '#f0eafc',
+          eyebrow: '#7862b5',
+          title: '#42346e',
+          action: '#69519e',
         }
       : {
           surface: '#FAECDF',
@@ -188,10 +159,10 @@ function PromoBannerCard({
 
   return (
     <article
-      className="group grid min-h-[218px] grid-cols-[1.12fr_.88fr] overflow-hidden rounded-[25px] border border-black/[.035] sm:min-h-[224px] lg:min-h-0"
+      className="group relative min-h-[215px] overflow-hidden rounded-[26px] border border-black/[.035] lg:min-h-0"
       style={{ backgroundColor: tone.surface }}
     >
-      <div className="relative z-10 flex min-w-0 flex-col items-start justify-center p-5 sm:p-6">
+      <div className="relative z-10 flex h-full max-w-[64%] flex-col items-start justify-center p-7">
         <p
           className="text-[9px] font-extrabold uppercase tracking-[.16em]"
           style={{ color: tone.eyebrow }}
@@ -199,7 +170,7 @@ function PromoBannerCard({
           Featured edit
         </p>
         <h2
-          className="mt-2 line-clamp-3 text-[19px] font-black leading-[1.13] tracking-[-.04em] sm:text-[22px]"
+          className="mt-2 line-clamp-3 text-[23px] font-black leading-[1.15] tracking-[-.04em] sm:text-[25px]"
           style={{ color: tone.title }}
         >
           {banner.headline}
@@ -219,7 +190,7 @@ function PromoBannerCard({
           </Link>
         )}
       </div>
-      <div className="relative min-h-full overflow-hidden">
+      <div className="absolute inset-y-0 right-0 w-[36%] overflow-hidden">
         {src ? (
           <img
             src={src}
@@ -230,7 +201,7 @@ function PromoBannerCard({
             height={banner.image?.height}
             loading="lazy"
             decoding="async"
-            className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+            className="absolute inset-0 h-full w-full object-cover opacity-80 transition-transform duration-500 group-hover:scale-[1.04]"
             style={{
               objectPosition: index === 0 ? '82% center' : '58% center',
             }}
@@ -283,41 +254,6 @@ function TrustStrip() {
   )
 }
 
-function LiveCategoryTile({
-  category,
-  index,
-}: {
-  category: Category
-  index: number
-}) {
-  const Icon = categoryIcons[category.slug] || Tag
-  const tint = /^#[0-9a-f]{6}$/i.test(category.color)
-    ? category.color
-    : categoryTints[index % categoryTints.length]
-
-  return (
-    <Link
-      href={`/shop?category=${encodeURIComponent(category.slug)}`}
-      className="group flex min-w-0 flex-col items-center gap-3 rounded-[20px] border border-border bg-white p-3 text-center transition hover:-translate-y-1 hover:border-primary/30 hover:shadow-[0_16px_36px_rgba(24,48,99,0.09)] focus-visible:outline-2 focus-visible:outline-primary sm:p-4"
-    >
-      <span
-        className="flex size-[62px] shrink-0 items-center justify-center rounded-[18px] text-[#3d5177] transition group-hover:scale-105 sm:size-[76px]"
-        style={{ backgroundColor: tint }}
-      >
-        <Icon size={29} strokeWidth={1.65} />
-      </span>
-      <span className="line-clamp-2 text-xs font-extrabold leading-snug text-ink sm:text-sm">
-        {category.name}
-      </span>
-      {category.description && (
-        <span className="hidden text-[11px] text-muted sm:block">
-          {category.description}
-        </span>
-      )}
-    </Link>
-  )
-}
-
 function CategorySection() {
   const { categories, loading, error, reload } = useCatalog()
   const roots = categories
@@ -360,7 +296,7 @@ function CategorySection() {
         <div
           role="status"
           aria-label="Loading categories"
-          className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8 sm:gap-4"
+          className="grid grid-cols-3 gap-3 sm:grid-cols-4 xl:grid-cols-8 sm:gap-4"
         >
           {Array.from({ length: 8 }, (_, index) => (
             <div
@@ -373,13 +309,9 @@ function CategorySection() {
           ))}
         </div>
       ) : roots.length ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8 sm:gap-4">
-          {roots.map((category, index) => (
-            <LiveCategoryTile
-              category={category}
-              index={index}
-              key={category.id}
-            />
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 xl:grid-cols-8 sm:gap-4">
+          {roots.map((category) => (
+            <CategoryTile category={category} key={category.id} />
           ))}
         </div>
       ) : (
@@ -397,86 +329,6 @@ function CategorySection() {
         </Link>
       </div>
     </section>
-  )
-}
-
-function LiveProductCard({
-  product,
-}: {
-  product: Collection['products'][number]
-}) {
-  const src = imageUrl(product.image?.url)
-  const badge =
-    product.badge?.trim() ||
-    product.tag?.replace(/^./, (letter) => letter.toUpperCase())
-  const href = `/product/${encodeURIComponent(product.slug)}`
-  const hasCompareAt =
-    product.compareAtMinor !== null &&
-    product.compareAtMinor > product.priceMinor
-
-  return (
-    <article className="group relative overflow-hidden rounded-[18px] border border-border bg-white card-lift">
-      <Link
-        href={href}
-        className="relative block aspect-[1.03] overflow-hidden bg-[#f5f7fb]"
-        aria-label={`View product: ${product.title}`}
-      >
-        {src ? (
-          <img
-            src={src}
-            srcSet={product.image?.srcSet}
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            alt={product.image?.alt || product.title}
-            width={product.image?.width}
-            height={product.image?.height}
-            loading="lazy"
-            decoding="async"
-            className="h-full w-full object-contain p-4 transition-transform duration-500 group-hover:scale-105"
-          />
-        ) : (
-          <span className="flex h-full items-center justify-center text-[#aab4c5]">
-            <Box size={42} strokeWidth={1.2} />
-          </span>
-        )}
-        {badge && (
-          <span className="absolute left-3 top-3 rounded-lg bg-white/95 px-2.5 py-1.5 text-[10px] font-bold text-[#26395e] shadow-sm">
-            {badge}
-          </span>
-        )}
-      </Link>
-      <div className="px-3.5 pb-4 pt-3 sm:px-4 sm:pb-5">
-        <Link
-          href={href}
-          className="line-clamp-2 min-h-[42px] text-[13px] font-bold leading-[1.6] text-ink hover:text-primary sm:text-sm"
-        >
-          {product.title}
-        </Link>
-        <div className="mt-2 flex flex-wrap items-baseline gap-2">
-          <strong className="text-sm font-extrabold text-ink sm:text-base">
-            {money(product.priceMinor, product.currency)}
-          </strong>
-          {hasCompareAt && (
-            <del className="text-xs text-muted">
-              {money(product.compareAtMinor!, product.currency)}
-            </del>
-          )}
-        </div>
-        <p className="mt-2 min-h-8 text-[11px] leading-5 text-muted">
-          {product.availableQuantity > 0
-            ? product.hasVariants
-              ? 'Options available on product page'
-              : 'Currently available'
-            : 'Currently unavailable'}
-        </p>
-        <Link
-          href={href}
-          className="mt-2 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-[#dce5fa] bg-[#f2f6ff] px-3 text-xs font-extrabold text-primary transition hover:border-primary hover:bg-primary hover:text-white"
-        >
-          {product.hasVariants ? 'Choose options' : 'View product'}
-          <ArrowRight size={15} />
-        </Link>
-      </div>
-    </article>
   )
 }
 
@@ -573,8 +425,11 @@ function CollectionTabs({
   if (!collections.length) return null
 
   const f = finishCopy('en')
-  const products = visibleCollection?.products || []
-  const moreInCollection = Boolean(visibleCollection?.productsTruncated)
+  const products = (visibleCollection?.products || []).slice(0, 8)
+  const moreInCollection = Boolean(
+    visibleCollection?.productsTruncated ||
+      (visibleCollection?.products.length || 0) > 8,
+  )
 
   return (
     <section className="container-shell pb-16 pt-12 sm:pb-20 sm:pt-16">
@@ -584,7 +439,9 @@ function CollectionTabs({
             {f.collectionEyebrow}
           </p>
           <h2 className="section-heading">{f.collectionTitle}</h2>
-          <p className="mt-2 text-sm text-muted">{f.collectionDesc}</p>
+          <p className="mt-2 text-sm text-muted">
+            Everyday favorites and fresh arrivals from our featured collections.
+          </p>
         </div>
         <Link
           href="/shop"
@@ -609,9 +466,9 @@ function CollectionTabs({
             }}
             tabIndex={activeSlug === collection.slug ? 0 : -1}
             onKeyDown={(event) => onTabKeyDown(event, index)}
-            id={`live-collection-tab-${collection.slug}`}
+            id={`collection-tab-${collection.slug}`}
             aria-selected={activeSlug === collection.slug}
-            aria-controls="live-collection-panel"
+            aria-controls="collection-panel"
             onClick={() => setActiveSlug(collection.slug)}
             className={`shrink-0 rounded-full px-4 py-2.5 text-xs font-extrabold transition sm:text-sm ${activeSlug === collection.slug ? 'bg-[#16233e] text-white shadow-sm' : 'border border-border bg-white text-[#61708b] hover:border-primary hover:text-primary'}`}
           >
@@ -621,14 +478,14 @@ function CollectionTabs({
       </div>
 
       <div
-        id="live-collection-panel"
+        id="collection-panel"
         role="tabpanel"
         tabIndex={0}
-        aria-labelledby={`live-collection-tab-${activeSlug}`}
+        aria-labelledby={`collection-tab-${activeSlug}`}
         className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4"
       >
         {products.map((product) => (
-          <LiveProductCard product={product} key={product.id} />
+          <ProductCard product={product} key={product.id} />
         ))}
       </div>
 
@@ -715,7 +572,7 @@ function BottomPromotion() {
   )
 }
 
-export function LiveHomepage({
+export function Homepage({
   data,
   supportNotice,
   onRefresh,
@@ -744,7 +601,9 @@ export function LiveHomepage({
 
       {hero ? (
         <section className="container-shell pt-5 sm:pt-7">
-          <div className="grid gap-4 lg:grid-cols-[1.78fr_1fr]">
+          <div
+            className={`grid gap-4 ${sidePromotions.length ? 'lg:grid-cols-[1.78fr_1fr]' : ''}`}
+          >
             <HeroBanner banner={hero} />
             {sidePromotions.length > 0 && (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">

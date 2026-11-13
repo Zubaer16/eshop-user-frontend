@@ -1,7 +1,5 @@
 import type { Metadata } from 'next'
-import { ShopClient } from '@/components/store/shop-client'
-import { LiveShop } from '@/components/catalog/catalog'
-import { isPreviewMode } from '@/lib/integration-mode'
+import { Shop } from '@/components/catalog/catalog'
 import { normalizeShopParams } from '@/lib/api/catalog'
 
 export const metadata: Metadata = {
@@ -28,19 +26,6 @@ export default async function ShopPage({
   searchParams: Promise<Params>
 }) {
   const params = await searchParams
-  if (!isPreviewMode) {
-    const normalized = normalizeShopParams(params)
-    return <LiveShop key={JSON.stringify(normalized)} params={normalized} />
-  }
-  return (
-    <ShopClient
-      key={`${params.q ?? ''}/${params.category ?? ''}/${params.tag ?? ''}/${params.sort ?? ''}/${params.price ?? ''}/${params.stock ?? ''}`}
-      query={params.q ?? ''}
-      category={params.category ?? ''}
-      tag={params.tag ?? ''}
-      sort={params.sort ?? 'featured'}
-      price={params.price ?? 'all'}
-      stock={params.stock ?? ''}
-    />
-  )
+  const normalized = normalizeShopParams(params)
+  return <Shop key={JSON.stringify(normalized)} params={normalized} />
 }

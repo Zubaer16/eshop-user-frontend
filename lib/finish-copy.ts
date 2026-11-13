@@ -1,93 +1,14 @@
-import type { Locale } from '@/lib/catalog'
-
-/** English text for storefront interface and illustrative customer screens. */
+/** English copy for the storefront presentation. */
 const englishCopy = {
-  accountBadge: 'Future customer dashboard',
-  accountTitle: 'Everything in one place.',
-  accountDescription:
-    'One familiar experience for browsing on the website and eventually in the Flutter app. This is a visual prototype, not a signed-in account.',
-  accountLogin: 'Explore login design',
-  exampleOrders: 'Fictional example orders',
-  savedItems: 'Items saved in this browser',
-  cartItems: 'Items in local preview cart',
-  accountExplore: 'Explore your account',
-  quickOrders: 'Sample orders',
-  quickOrdersDesc: 'Explore order history and details',
-  quickTracking: 'Demo tracking',
-  quickTrackingDesc: 'Preview delivery milestones',
-  quickAddresses: 'Delivery addresses',
-  quickAddressesDesc: 'See the planned address book',
-  quickSettings: 'Account settings',
-  quickSettingsDesc: 'Manage preferences in the future',
-  sampleOrder: 'A sample order',
-  viewOrders: 'View sample orders',
-  detailBack: 'Back to sample orders',
-  detailEyebrow: 'Fictional order details',
-  detailPlaced: 'Placed',
-  exampleItems: 'Example items',
   quantity: 'Qty',
-  exampleTotal: 'Illustrative order total',
-  receiptDisclaimer:
-    'Sample totals are not verified charges or shipping costs. These are not receipts.',
-  deliveryRegion: 'Delivery region',
-  addressDisclaimer: 'No personal address is stored in this preview.',
-  demoMilestones: 'Demo milestones',
-  trackingLink: 'Open tracking preview',
-  addressesTitle: 'Your addresses, coming later',
-  addressesIntro:
-    'An address book will help signed-in customers manage international delivery addresses. It will be introduced only after secure authentication and storage are implemented.',
-  addressesMarkets: 'Worldwide destinations',
-  addressesMarketsDesc:
-    'Country-specific fields and eligibility will be checked by the future backend.',
-  addressesPrivacy: 'Privacy first',
-  addressesPrivacyDesc:
-    'This page does not request, save or transmit any address.',
-  addressesPreview: 'Preview checkout address form',
-  viewProduct: 'View product',
-  chooseOptions: 'Choose options',
-  addCart: 'Add to cart',
-  toastAdded: 'Added to your cart',
-  cardView: 'View',
-  removeWish: 'Remove from wishlist',
-  saveWish: 'Save to wishlist',
-  cartEach: 'each',
-  cartRemove: 'Remove',
-  cartDecrease: 'Decrease quantity of',
-  cartIncrease: 'Increase quantity of',
-  cartRemoveA11y: 'Remove from cart:',
-  cartOld:
-    'This saved cart line needs options. Choose them on the product page, then remove this old line.',
-  drawerTitle: 'Your cart',
-  drawerSaved: 'Saved in this browser for now.',
-  drawerEmpty: 'Your cart is waiting',
-  drawerEmptyDesc: 'Discover something you love and add it here.',
-  drawerExplore: 'Explore products',
-  drawerSubtotal: 'Estimated subtotal',
-  drawerOld: 'saved line(s) need options and are excluded from the subtotal.',
-  drawerPreview:
-    'Demo prices only. Shipping, tax and payment are not available until backend integration.',
-  drawerView: 'View cart',
-  homeExplore: 'Explore categories',
-  homeMarket: 'Shop globally with one curated store',
-  shoesEyebrow: 'Fresh steps',
-  shoesTitle: 'Step into your style.',
-  shoesLink: 'Shop shoes',
-  fashionEyebrow: 'Everyday edit',
-  fashionTitle: 'A new take on basics.',
-  fashionLink: 'Shop fashion',
   highlight1: 'Made for discovery',
   highlight1Desc: 'Explore everyday categories',
-  highlight2: 'One trusted store',
-  highlight2Desc: 'Curated by eShop',
   highlight3: 'Made for global discovery',
   highlight3Desc: 'USD prices across destinations',
   categoryEyebrow: 'FIND YOUR THING',
   categoryLink: 'All categories',
-  categoryMobile: 'Browse all categories',
   collectionEyebrow: 'THE GOOD STUFF',
   collectionTitle: 'Products to explore',
-  collectionDesc:
-    'Everyday favourites, fresh arrivals and limited preview deals.',
   promoEyebrow: 'SOMETHING GOOD',
   promoTitle: 'A little refresh for your everyday.',
   promoDesc:
@@ -95,7 +16,7 @@ const englishCopy = {
   promoLink: 'Discover offers',
 } as const
 
-export function finishCopy(_locale?: Locale) {
+export function finishCopy(_locale?: 'en') {
   void _locale
   return englishCopy
 }

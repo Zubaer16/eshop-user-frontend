@@ -11,7 +11,7 @@ function Shape({ className }: ShapeProps) {
   )
 }
 
-/** Only shown during route transitions. Preview fixture pages may load too quickly to display it. */
+/** Only shown during route transitions. Fast API responses may not display it. */
 export function PageSkeleton({
   variant,
 }: {

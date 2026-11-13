@@ -17,6 +17,17 @@ import {
   type ShopQuery,
 } from '@/lib/api/catalog'
 import { useCatalog } from './catalog-provider'
+import { ProductCard } from '@/components/store/product-card'
+import { CategoryTile } from '@/components/store/category-tile'
+import {
+  ChevronRight,
+  Compass,
+  SlidersHorizontal,
+  X,
+  CheckCircle2,
+  PackageCheck,
+  ShieldCheck,
+} from 'lucide-react'
 import { ProductActions } from '@/components/shopping/cart'
 const control =
   'h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10'
@@ -68,14 +79,33 @@ function ErrorState({ error, retry }: { error: string; retry: () => void }) {
     </div>
   )
 }
-export function LiveCategories() {
+export function Categories() {
   const { categories, loading, error, reload } = useCatalog()
   return (
-    <section className="container-shell py-10">
-      <p className="text-xs font-bold uppercase tracking-widest text-primary">
-        Explore eShop
-      </p>
-      <h1 className="mt-2 text-3xl font-black">Shop by category</h1>
+    <section className="container-shell pb-20 pt-9">
+      <nav
+        aria-label="Breadcrumb"
+        className="flex items-center gap-1.5 text-xs text-muted"
+      >
+        <Link href="/">Home</Link>
+        <ChevronRight size={14} />
+        <span className="font-bold text-ink">Categories</span>
+      </nav>
+      <div className="relative mb-10 mt-6 overflow-hidden rounded-[24px] bg-[#edf2ff] px-7 py-10 sm:px-12 sm:py-14">
+        <div className="absolute -right-10 -top-16 size-[230px] rounded-full border-[48px] border-[#d6e0ff]" />
+        <div className="relative">
+          <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-primary">
+            <Compass size={15} />
+            Discover your favorites
+          </span>
+          <h1 className="mt-5 text-3xl font-extrabold tracking-[-.045em] text-ink sm:text-5xl">
+            Shop by category
+          </h1>
+          <p className="mt-3 max-w-xl text-sm leading-7 text-muted">
+            Find everyday favorites, thoughtfully grouped for you.
+          </p>
+        </div>
+      </div>
       {error ? (
         <div className="mt-6">
           <ErrorState error={error} retry={reload} />
@@ -85,30 +115,31 @@ export function LiveCategories() {
           Loading categories…
         </p>
       ) : (
-        <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {categories.map((c) => (
-            <Link
-              key={c.id}
-              href={'/shop?category=' + encodeURIComponent(c.slug)}
-              className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-primary"
-            >
-              <div
-                className="mb-5 h-12 w-12 rounded-2xl"
-                style={{
-                  background: /^#[0-9a-f]{6}$/i.test(c.color)
-                    ? c.color
-                    : '#EAF0FF',
-                }}
-              />
-              <h2 className="text-lg font-extrabold">
-                {categoryLabel(c, categories)}
-              </h2>
-              <p className="mt-2 text-sm text-muted">{c.description}</p>
-              <span className="mt-5 block text-sm font-bold text-primary">
-                Explore products →
-              </span>
-            </Link>
-          ))}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {categories
+            .filter((c) => c.active && c.parentId === null)
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .map((c) => (
+              <div key={c.id} className="space-y-3">
+                <CategoryTile category={c} feature />
+                <div className="flex flex-wrap gap-2 px-2">
+                  {categories
+                    .filter((child) => child.active && child.parentId === c.id)
+                    .sort((a, b) => a.sortOrder - b.sortOrder)
+                    .map((child) => (
+                      <Link
+                        key={child.id}
+                        href={
+                          '/shop?category=' + encodeURIComponent(child.slug)
+                        }
+                        className="rounded-full border border-border px-3 py-1.5 text-xs text-muted hover:border-primary hover:text-primary"
+                      >
+                        {child.name}
+                      </Link>
+                    ))}
+                </div>
+              </div>
+            ))}
           {!categories.length && (
             <p className="py-8 text-sm text-muted">
               No categories are available yet.
@@ -119,57 +150,17 @@ export function LiveCategories() {
     </section>
   )
 }
-function Card({ product }: { product: Product }) {
-  return (
-    <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <Link href={'/product/' + product.slug}>
-        <CatalogImage
-          key={product.gallery[0]?.id || 'empty'}
-          image={product.gallery[0]}
-          title={product.title}
-          className="aspect-square w-full bg-slate-50 p-5"
-        />
-      </Link>
-      <div className="p-4">
-        {product.badge && (
-          <p className="mb-2 text-xs font-bold text-primary">{product.badge}</p>
-        )}
-        <Link
-          href={'/product/' + product.slug}
-          className="font-extrabold hover:text-primary"
-        >
-          {product.title}
-        </Link>
-        <p className="mt-3 font-black">
-          {money(product.priceMinor, product.currency)}
-          {product.compareAtMinor != null &&
-            product.compareAtMinor > product.priceMinor && (
-              <del className="ml-2 text-xs font-normal text-muted">
-                {money(product.compareAtMinor, product.currency)}
-              </del>
-            )}
-        </p>
-        <p className="mt-2 text-xs text-muted">
-          {product.purchasable ? 'In stock' : 'Currently unavailable'}
-          {product.hasVariants ? ' · Choose size / color' : ''}
-        </p>
-        <Link
-          href={'/product/' + product.slug}
-          className={button + ' mt-4 w-full'}
-        >
-          View product
-        </Link>
-        <ProductActions product={product} compact />
-      </div>
-    </article>
-  )
-}
-export function LiveShop({ params }: { params: ShopQuery }) {
+export function Shop({ params }: { params: ShopQuery }) {
   const router = useRouter(),
     catalog = useCatalog(),
     [data, setData] = useState<Page<Product> | null>(null),
     [error, setError] = useState(''),
     [revision, setRevision] = useState(0)
+  const [showFilters, setShowFilters] = useState(false)
+  useEffect(() => {
+    if (showFilters)
+      document.querySelector<HTMLButtonElement>('#shop-filters button')?.focus()
+  }, [showFilters])
   const [q, setQ] = useState(params.q || ''),
     [category, setCategory] = useState(params.category || ''),
     [tag, setTag] = useState(params.tag || ''),
@@ -234,6 +225,7 @@ export function LiveShop({ params }: { params: ShopQuery }) {
   function submit(event: FormEvent) {
     event.preventDefault()
     navigate({ q, category, tag, sort, stock, min, max, page: '1' })
+    setShowFilters(false)
   }
   return (
     <section className="container-shell py-10">
@@ -255,11 +247,47 @@ export function LiveShop({ params }: { params: ShopQuery }) {
           Refresh products
         </button>
       </div>
-      <div className="grid gap-7 lg:grid-cols-[240px_1fr]">
+      <button
+        type="button"
+        aria-expanded={showFilters}
+        aria-controls="shop-filters"
+        onClick={() => setShowFilters((open) => !open)}
+        className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-xl border border-border px-4 text-sm font-bold lg:hidden"
+      >
+        <SlidersHorizontal size={16} />
+        Filters
+      </button>
+      <div className="grid items-start gap-7 lg:grid-cols-[235px_minmax(0,1fr)]">
         <form
-          className="h-fit space-y-4 rounded-2xl border border-slate-200 bg-white p-5"
+          id="shop-filters"
+          className={`${showFilters ? 'block' : 'hidden'} h-fit space-y-4 rounded-[20px] border border-border bg-white p-5 lg:block`}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setShowFilters(false)
+              document
+                .querySelector<HTMLButtonElement>(
+                  '[aria-controls="shop-filters"]',
+                )
+                ?.focus()
+            }
+          }}
           onSubmit={submit}
         >
+          <button
+            type="button"
+            aria-label="Close filters"
+            onClick={() => {
+              setShowFilters(false)
+              document
+                .querySelector<HTMLButtonElement>(
+                  '[aria-controls="shop-filters"]',
+                )
+                ?.focus()
+            }}
+            className="ml-auto flex size-10 items-center justify-center rounded-lg border border-border lg:hidden"
+          >
+            <X size={16} />
+          </button>
           <label className="block text-sm font-bold">
             Search
             <input
@@ -374,9 +402,9 @@ export function LiveShop({ params }: { params: ShopQuery }) {
                 {data.total} products · Page {data.page} of{' '}
                 {Math.max(1, data.pages)}
               </p>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3">
                 {data.items.map((product) => (
-                  <Card key={product.id} product={product} />
+                  <ProductCard key={product.id} product={product} />
                 ))}
               </div>
               {!data.items.length && (
@@ -414,7 +442,7 @@ export function LiveShop({ params }: { params: ShopQuery }) {
     </section>
   )
 }
-export function LiveProduct({ initial }: { initial: Product }) {
+export function ProductDetails({ initial }: { initial: Product }) {
   const [product, setProduct] = useState(initial),
     [variantId, setVariantId] = useState(''),
     [image, setImage] = useState(0),
@@ -465,13 +493,37 @@ export function LiveProduct({ initial }: { initial: Product }) {
       window.removeEventListener('focus', focus)
     }
   }, [initial.slug, revision])
+  const { categories } = useCatalog()
+  const productCategory = categories.find((c) =>
+    product.categoryIds.includes(c.id),
+  )
   const variant = product.variants.find((v) => v.id === variantId),
     price = variant?.priceMinor ?? product.priceMinor
   return (
-    <section data-product-id={product.id} className="container-shell py-10">
-      <Link href="/shop" className="text-sm font-bold text-primary">
-        ← Back to products
-      </Link>
+    <section
+      data-product-id={product.id}
+      className="container-shell pb-16 pt-8 sm:pb-20"
+    >
+      <nav
+        aria-label="Breadcrumb"
+        className="mb-7 flex flex-wrap items-center gap-1.5 text-xs text-muted"
+      >
+        <Link href="/">Home</Link>
+        <ChevronRight size={14} />
+        <Link href="/shop">Shop</Link>
+        {productCategory && (
+          <>
+            <ChevronRight size={14} />
+            <Link href={'/shop?category=' + productCategory.slug}>
+              {productCategory.name}
+            </Link>
+          </>
+        )}
+        <ChevronRight size={14} />
+        <span className="max-w-48 truncate font-semibold text-ink">
+          {product.title}
+        </span>
+      </nav>
       {error && (
         <div className="my-5">
           <ErrorState
@@ -481,7 +533,7 @@ export function LiveProduct({ initial }: { initial: Product }) {
         </div>
       )}
       {!gone && (
-        <div className="mt-7 grid gap-9 lg:grid-cols-2">
+        <div className="grid gap-9 md:grid-cols-2 md:gap-10 lg:gap-16">
           <div>
             <CatalogImage
               key={
@@ -516,14 +568,28 @@ export function LiveProduct({ initial }: { initial: Product }) {
             <p className="text-xs font-bold uppercase tracking-widest text-primary">
               {product.badge}
             </p>
-            <h1 className="mt-3 text-3xl font-black">{product.title}</h1>
-            <p className="mt-5 text-3xl font-black">
-              {money(price, product.currency)}
+            <h1 className="mt-3 text-[30px] font-extrabold leading-[1.2] tracking-[-.045em] sm:text-[39px]">
+              {product.title}
+            </h1>
+            <p className="mt-4 max-w-[480px] whitespace-pre-wrap text-sm leading-7 text-muted">
+              {product.description}
             </p>
+            <div className="mt-6 flex flex-wrap items-baseline gap-3 border-b border-border pb-6">
+              <strong className="text-3xl font-extrabold">
+                {money(price, product.currency)}
+              </strong>
+              {product.compareAtMinor !== null &&
+                product.compareAtMinor > price && (
+                  <del className="text-lg text-muted">
+                    {money(product.compareAtMinor, product.currency)}
+                  </del>
+                )}
+            </div>
             <p className="mt-3 text-sm text-muted">
               SKU: {variant?.sku || product.sku}
             </p>
-            <p className="mt-3 text-sm font-bold">
+            <p className="mt-4 flex items-center gap-2 text-sm font-semibold text-muted">
+              <CheckCircle2 size={17} />
               {error
                 ? 'Availability refresh required'
                 : product.hasVariants
@@ -537,39 +603,60 @@ export function LiveProduct({ initial }: { initial: Product }) {
                     : 'Currently unavailable'}
             </p>
             {product.hasVariants && (
-              <label className="mt-6 block text-sm font-bold">
-                Size / color
-                <select
-                  aria-label="Size / color"
-                  className={control + ' mt-2'}
-                  value={variantId}
-                  onChange={(e) => setVariantId(e.target.value)}
-                >
-                  <option value="">Choose an option</option>
+              <fieldset className="mt-6">
+                <legend className="text-sm font-bold">Size / color</legend>
+                <div className="mt-3 flex flex-wrap gap-2">
                   {product.variants.map((v) => (
-                    <option key={v.id} value={v.id}>
+                    <button
+                      key={v.id}
+                      type="button"
+                      aria-pressed={variantId === v.id}
+                      onClick={() => setVariantId(v.id)}
+                      className={
+                        'min-h-11 rounded-xl border px-4 py-3 text-sm font-bold transition ' +
+                        (variantId === v.id
+                          ? 'border-primary bg-blue-50 text-primary'
+                          : 'border-border hover:border-primary')
+                      }
+                    >
                       {[v.options.size, v.options.color]
                         .filter(Boolean)
-                        .join(' / ')}{' '}
-                      —{' '}
-                      {money(
-                        v.priceMinor ?? product.priceMinor,
-                        product.currency,
-                      )}
-                      {!v.available ? ' (unavailable)' : ''}
-                    </option>
+                        .join(' / ') || v.sku}
+                      <span className="ml-2 text-xs font-normal">
+                        {money(
+                          v.priceMinor ?? product.priceMinor,
+                          product.currency,
+                        )}
+                        {!v.available ? ' · Unavailable' : ''}
+                      </span>
+                    </button>
                   ))}
-                </select>
-              </label>
+                </div>
+              </fieldset>
             )}
-            <p className="mt-6 whitespace-pre-wrap text-sm leading-7 text-slate-600">
-              {product.description}
-            </p>
             <ProductActions
               product={product}
               variantId={variantId}
               unavailable={Boolean(error)}
             />
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-border bg-[#fbfcff] p-4">
+                <PackageCheck size={19} className="text-primary" />
+                <p className="mt-2 text-sm font-extrabold">Delivery options</p>
+                <p className="mt-1 text-xs leading-5 text-muted">
+                  Available services and charges are confirmed for your address
+                  at checkout.
+                </p>
+              </div>
+              <div className="rounded-xl border border-border bg-[#fbfcff] p-4">
+                <ShieldCheck size={19} className="text-primary" />
+                <p className="mt-2 text-sm font-extrabold">Shop with clarity</p>
+                <p className="mt-1 text-xs leading-5 text-muted">
+                  Review current availability and your order total before
+                  placing an order.
+                </p>
+              </div>
+            </div>
             <button
               className="mt-5 text-sm font-bold text-primary"
               onClick={() => setRevision((value) => value + 1)}
@@ -579,6 +666,52 @@ export function LiveProduct({ initial }: { initial: Product }) {
           </div>
         </div>
       )}
+      {!gone && productCategory && (
+        <RelatedProducts
+          category={productCategory.slug}
+          productId={product.id}
+        />
+      )}
     </section>
   )
+}
+
+function RelatedProducts({
+  category,
+  productId,
+}: {
+  category: string
+  productId: string
+}) {
+  const [items, setItems] = useState<Product[]>([])
+  useEffect(() => {
+    const controller = new AbortController()
+    setItems([])
+    void api
+      .request('/v1/products', {
+        auth: false,
+        query: { category, limit: 5 },
+        signal: controller.signal,
+      })
+      .then((value) => {
+        if (!controller.signal.aborted)
+          setItems(
+            readPage(value, readProduct)
+              .items.filter((item) => item.id !== productId)
+              .slice(0, 4),
+          )
+      })
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [category, productId])
+  return items.length ? (
+    <section className="mt-16 border-t border-border pt-10">
+      <h2 className="section-heading mb-7">More to discover</h2>
+      <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
+        {items.map((item) => (
+          <ProductCard key={item.id} product={item} />
+        ))}
+      </div>
+    </section>
+  ) : null
 }

@@ -1,5 +1,7 @@
 # Frontend Release Criteria
 
+**Current workflow, 2026-11-13:** one API-backed UI uses the approved design. Sample-mode requirements in older sections below are retired. Required local checks are verify/compatibility, TypeScript, ESLint, unit tests, production build and the single storefront E2E suite described in [the E2E guide](E2E_TESTING.md). Real DB cross-app/provider/deployed-origin evidence remains separate; no local test result implies full release acceptance.
+
 The storefront is an **English-only UI implementation** and not yet a transaction-capable production store. Complete the following before a public launch.
 
 ## Code quality

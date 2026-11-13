@@ -1,61 +1,67 @@
 'use client'
-
 import Link from 'next/link'
 import {
-  Camera,
+  Baby,
+  BookOpen,
+  Dumbbell,
   Headphones,
   House,
   Shirt,
+  ShoppingBasket,
   Sparkles,
-  Watch,
-  Footprints,
+  Tag,
   type LucideIcon,
 } from 'lucide-react'
-import type { CategoryId } from '@/lib/catalog'
-import { categoryDescription } from '@/lib/fixture-localization'
+import type { Category } from '@/lib/api/catalog'
 
-const icons: Record<CategoryId, LucideIcon> = {
+const icons: Record<string, LucideIcon> = {
   electronics: Headphones,
   fashion: Shirt,
-  footwear: Footprints,
-  home: House,
-  beauty: Sparkles,
-  lifestyle: Camera,
-  accessories: Watch,
+  'beauty-personal-care': Sparkles,
+  'home-kitchen': House,
+  'sports-outdoors': Dumbbell,
+  grocery: ShoppingBasket,
+  'books-stationery': BookOpen,
+  'toys-baby': Baby,
 }
-
 export function CategoryTile({
   category,
-  variant = 'compact',
+  feature = false,
 }: {
-  category: {
-    id: CategoryId
-    label: string
-    description: string
-    tint: string
-  }
-  variant?: 'compact' | 'feature'
+  category: Category
+  feature?: boolean
 }) {
-  const name = category.label
-  const Icon = icons[category.id]
+  const Icon = icons[category.slug] || Tag
   return (
     <Link
-      href={`/shop?category=${category.id}`}
-      className={`group flex border border-border bg-white transition hover:-translate-y-1 hover:border-primary/30 hover:shadow-[0_16px_36px_rgba(24,48,99,0.09)] focus-visible:outline-2 focus-visible:outline-primary ${variant === 'feature' ? 'flex-row items-center gap-4 rounded-[22px] p-5' : 'flex-col items-center gap-3 rounded-[20px] p-3 text-center sm:p-4'}`}
+      href={'/shop?category=' + encodeURIComponent(category.slug)}
+      className={
+        'group flex border border-border bg-white transition hover:-translate-y-1 hover:border-primary/30 hover:shadow-lg ' +
+        (feature
+          ? 'items-center gap-4 rounded-[22px] p-5'
+          : 'min-w-0 flex-col items-center gap-3 rounded-[20px] p-3 text-center sm:p-4')
+      }
     >
       <span
-        className={`flex shrink-0 items-center justify-center rounded-[18px] text-[#3d5177] transition group-hover:scale-[1.05] ${variant === 'feature' ? 'size-[72px]' : 'size-[67px] sm:size-[79px]'}`}
-        style={{ background: category.tint }}
+        className={
+          'flex shrink-0 items-center justify-center rounded-[18px] text-[#3d5177] transition group-hover:scale-105 ' +
+          (feature ? 'size-[72px]' : 'size-[62px] sm:size-[76px]')
+        }
+        style={{
+          backgroundColor: /^#[0-9a-f]{6}$/i.test(category.color)
+            ? category.color
+            : '#EAF0FF',
+        }}
       >
         <Icon size={30} strokeWidth={1.65} />
       </span>
       <span className="min-w-0">
         <span className="block text-xs font-extrabold leading-snug text-ink sm:text-sm">
-          {name}
+          {category.name}
         </span>
-        {variant === 'feature' && (
-          <span className="mt-1 block text-xs text-muted">
-            {categoryDescription(category.id, category.description, 'en')}
+        {feature && (
+          <span className="mt-1 block text-xs leading-5 text-muted">
+            {category.description}
           </span>
         )}
       </span>

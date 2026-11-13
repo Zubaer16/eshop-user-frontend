@@ -40,7 +40,7 @@ const channels = [
 ]
 const button =
   'rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white disabled:opacity-50'
-export function LiveInbox() {
+export function NotificationInbox() {
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true

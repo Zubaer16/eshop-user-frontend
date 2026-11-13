@@ -1,11 +1,8 @@
-/* eslint-disable @next/next/no-img-element -- Backend-verified public media. */
 'use client'
 import { createContext, useContext, useEffect, useState } from 'react'
-import Link from 'next/link'
 import { api } from '@/lib/api/client'
-import { LiveHomepage } from '@/components/store/live-homepage'
-import { money, imageUrl } from '@/lib/api/catalog'
-import { isPreviewMode } from '@/lib/integration-mode'
+import { Homepage } from '@/components/store/home'
+import { ProductCard } from './product-card'
 export type Asset = {
   id: string
   url: string
@@ -94,7 +91,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [operations, setOperations] = useState<Operations | null>(null),
     [error, setError] = useState('')
   useEffect(() => {
-    if (isPreviewMode) return
     let active = true
     async function load() {
       const results = await Promise.allSettled([
@@ -113,14 +109,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (o.status === 'fulfilled') {
         setOperations(o.value)
         const value = o.value
-        if (/^#[a-f0-9]{6}$/i.test(value.accentColor))
-          document.documentElement.style.setProperty(
-            '--primary',
-            value.accentColor,
+        const root = document.documentElement
+        if (value.configured && /^#[a-f0-9]{6}$/i.test(value.accentColor)) {
+          root.style.setProperty('--primary', value.accentColor)
+          root.style.setProperty(
+            '--primary-hover',
+            `color-mix(in srgb, ${value.accentColor}, black 15%)`,
           )
-        if (/^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2})?$/.test(value.locale))
-          document.documentElement.dataset.storeLocale = value.locale
-        document.documentElement.dataset.storeTheme = value.themeMode
+          root.style.setProperty('--ring', value.accentColor)
+        } else {
+          for (const token of ['--primary', '--primary-hover', '--ring'])
+            root.style.removeProperty(token)
+        }
+        if (
+          value.configured &&
+          /^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-[A-Z]{2})?$/.test(value.locale)
+        )
+          root.dataset.storeLocale = value.locale
+        else delete root.dataset.storeLocale
+        if (value.configured) root.dataset.storeTheme = value.themeMode
+        else delete root.dataset.storeTheme
       } else setOperations(null)
     }
     void load()
@@ -139,7 +147,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   )
 }
 export const useStoreConfiguration = () => useContext(Context)
-export function LiveStoreHome() {
+export function StoreHome() {
   const [data, setData] = useState<Home | null>(null),
     [error, setError] = useState(''),
     [revision, setRevision] = useState(0),
@@ -198,7 +206,7 @@ export function LiveStoreHome() {
   }
 
   return (
-    <LiveHomepage
+    <Homepage
       data={data}
       supportNotice={store.data?.profile.supportNotice || ''}
       onRefresh={() => setRevision((value) => value + 1)}
@@ -213,40 +221,14 @@ export function safeStorePath(value: string) {
 }
 function CollectionProducts({ collection }: { collection: Collection }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {collection.products.map((p) => (
-        <article
-          key={p.id}
-          className="space-y-3 rounded-2xl border bg-white p-5"
-        >
-          {p.image && imageUrl(p.image.url) && (
-            <img
-              src={imageUrl(p.image.url)!}
-              alt={p.image.alt || p.title}
-              width={p.image.width}
-              height={p.image.height}
-              className="aspect-square w-full object-contain"
-            />
-          )}
-          <Link
-            className="block font-bold text-primary"
-            href={'/product/' + p.slug}
-          >
-            {p.title}
-          </Link>
-          <p className="font-bold">{money(p.priceMinor, p.currency)}</p>
-          <p className="text-xs text-muted">
-            {p.availableQuantity > 0
-              ? 'Current availability shown on product page'
-              : 'Currently unavailable'}
-            {p.hasVariants ? ' · Choose options on product page' : ''}
-          </p>
-        </article>
+    <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 xl:grid-cols-4">
+      {collection.products.map((product) => (
+        <ProductCard key={product.id} product={product} />
       ))}
     </div>
   )
 }
-export function LiveCollection({ slug }: { slug: string }) {
+export function CollectionPage({ slug }: { slug: string }) {
   const [data, setData] = useState<Collection | null>(null),
     [error, setError] = useState('')
   useEffect(() => {
@@ -289,7 +271,7 @@ export function LiveCollection({ slug }: { slug: string }) {
     </section>
   )
 }
-export function LivePolicy({ kind }: { kind: string }) {
+export function PolicyPage({ kind }: { kind: string }) {
   const store = useStoreConfiguration(),
     key =
       kind === 'privacy'
@@ -320,43 +302,5 @@ export function LivePolicy({ kind }: { kind: string }) {
         </p>
       )}
     </section>
-  )
-}
-export function LiveStoreFooter() {
-  const store = useStoreConfiguration()
-  return (
-    <footer className="border-t border-slate-200 bg-white py-8">
-      <div className="container-shell space-y-4">
-        <p className="font-bold">{store.data?.profile.storeName || 'eShop'}</p>
-        {store.error && (
-          <p role="status" className="text-sm">
-            {store.error}
-          </p>
-        )}
-        <p className="whitespace-pre-wrap text-sm text-muted">
-          {store.data?.content.footerText}
-        </p>
-        {store.data?.profile.supportEmail && (
-          <a
-            className="text-sm text-primary"
-            href={'mailto:' + store.data.profile.supportEmail}
-          >
-            {store.data.profile.supportEmail}
-          </a>
-        )}
-        <nav className="flex flex-wrap gap-5 text-sm font-bold text-primary">
-          <Link href="/shop">Shop</Link>
-          <Link href="/account/orders">Your orders</Link>
-          <Link href="/account/notifications">Inbox</Link>
-          {store.operations?.showPolicies && (
-            <>
-              <Link href="/policies/privacy">Privacy</Link>
-              <Link href="/policies/terms">Terms</Link>
-              <Link href="/policies/returns">Returns</Link>
-            </>
-          )}
-        </nav>
-      </div>
-    </footer>
   )
 }

@@ -1,5 +1,7 @@
 # Web and Flutter Design Parity
 
+**2026-11-13:** use the current single API-backed Storefront and `design/` tokens as the visual reference. The temporary sample-mode component tree, Zustand fixture store and draft DTO adapters mentioned in older notes are retired. Flutter uses the canonical Backend API rather than browser presentation state. See [consolidation](STOREFRONT_CONSOLIDATION.md).
+
 The mobile app will be a **native Flutter application** using the web storefront's approved information architecture, colors, typography, components and business flows as its design reference. Flutter will not embed Next.js pages or consume client-only Zustand state.
 
 | Web screen          | Flutter counterpart          | Shared behavior                                                |

@@ -1,13 +1,10 @@
 import { Suspense } from 'react'
-import { isPreviewMode } from '@/lib/integration-mode'
-import { LiveAddresses } from '@/components/shopping/account'
-import PreviewPage from '@/components/preview/pages/account-addresses'
+import { Addresses } from '@/components/shopping/account'
 
 export default function Page() {
-  if (isPreviewMode) return <PreviewPage />
   return (
     <Suspense fallback={<p role="status">Loading...</p>}>
-      <LiveAddresses />
+      <Addresses />
     </Suspense>
   )
 }

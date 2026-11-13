@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { ChevronRight, LockKeyhole, PackageCheck } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '@/lib/api/client'
 import { money } from '@/lib/api/catalog'
@@ -54,7 +55,7 @@ function TotalsView({ data, total }: { data: Totals; total: number }) {
     </dl>
   )
 }
-export function LiveCheckout() {
+export function Checkout() {
   const shopping = useCommerce()
   const [addresses, setAddresses] = useState<Address[]>([]),
     [addressId, setAddressId] = useState(''),
@@ -208,427 +209,414 @@ export function LiveCheckout() {
   const active = hold?.status === 'ACTIVE',
     expired = Boolean(hold && Date.parse(hold.expiresAt) <= now)
   return (
-    <section className="container-shell max-w-4xl space-y-6 py-10">
-      <h1 className="text-3xl font-black">Checkout</h1>
-      <p className="text-sm text-muted">
-        TEST checkout. No live card details are collected. Orders use their
-        UUID.
-      </p>
-      <Link href="/cart" className="font-bold text-primary">
-        Review your cart
-      </Link>
-      <ErrorMessage text={error} />
-      {notice && (
-        <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm">
-          {notice}
-        </p>
-      )}
-      {loading ? (
-        <p role="status">Restoring checkout…</p>
-      ) : (
-        <>
-          <button
-            className="text-sm font-bold text-primary"
-            disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                await recover()
-                shopping.reload()
-                setNotice('Current server checkout state refreshed.')
-              })
-            }
-          >
-            Refresh checkout status
-          </button>
-          {intent && (
-            <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-              <p>
-                The {intent.kind === 'reserve' ? 'reservation' : 'order'}{' '}
-                request is unconfirmed. Retry the exact request; do not create
-                another request.
-              </p>
-              <button
-                className={actionClass}
-                disabled={busy}
-                onClick={() => void run(() => send(intent))}
-              >
-                Retry same request
-              </button>
-              <p className="text-xs">
-                After a reload, Refresh checkout status discovers the server
-                hold or unpaid order. No delivery address is stored in browser
-                storage.
-              </p>
-            </div>
+    <section className="container-shell pb-20 pt-9">
+      <nav
+        aria-label="Breadcrumb"
+        className="mb-5 flex items-center gap-1.5 text-xs text-muted"
+      >
+        <Link href="/">Home</Link>
+        <ChevronRight size={14} />
+        <Link href="/cart">Cart</Link>
+        <ChevronRight size={14} />
+        <span className="font-bold text-ink">Checkout</span>
+      </nav>
+      <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
+        Checkout
+      </h1>
+      <ol
+        aria-label="Checkout progress"
+        className="mb-7 mt-7 grid grid-cols-3 gap-2"
+      >
+        {['Address', 'Delivery', 'Review'].map((label, index) => {
+          const current = order || hold ? 2 : options ? 1 : 0
+          return (
+            <li
+              key={label}
+              aria-current={current === index ? 'step' : undefined}
+              className={
+                'flex items-center gap-2 rounded-xl border px-3 py-3 text-xs font-bold sm:text-sm ' +
+                (current === index
+                  ? 'border-primary bg-blue-50 text-primary'
+                  : 'border-border text-muted')
+              }
+            >
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-current">
+                {index + 1}
+              </span>
+              {label}
+            </li>
+          )
+        })}
+      </ol>
+      <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 space-y-6 rounded-[22px] border border-border bg-white p-5 sm:p-7">
+          <p className="text-sm text-muted">
+            TEST checkout. No live card details are collected. Orders use their
+            UUID.
+          </p>
+          <Link href="/cart" className="block w-fit font-bold text-primary">
+            Review your cart
+          </Link>
+          <ErrorMessage text={error} />
+          {notice && (
+            <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm">
+              {notice}
+            </p>
           )}
-          {order ? (
-            <section className="space-y-5 rounded-2xl border border-slate-200 p-5">
-              <h2 className="text-xl font-black">Order {order.id}</h2>
-              <Link
-                href={'/account/orders/' + order.id}
-                className="text-sm font-bold text-primary"
-              >
-                Open order details and tracking
-              </Link>
-              <p role="status">
-                Order status: <strong>{order.status}</strong>
-              </p>
-              <TotalsView data={order} total={order.totalMinor} />
-              {order.lines.map((line) => (
-                <p key={line.id} className="text-sm">
-                  {line.title} · {line.sku || 'No SKU'} · {line.quantity} units
-                  · {money(line.netLineTotalMinor, order.currency)}
-                </p>
-              ))}
-              <p className="text-sm">
-                Payment deadline: {order.paymentDeadlineAt}
-              </p>
-              {order.status === 'PAID' ? (
-                <p className="font-bold text-green-800">
-                  Payment confirmed by the server.
-                </p>
-              ) : (
-                <>
-                  <p className="text-sm">
-                    Payment preparation:{' '}
-                    {payment?.preparationStatus || 'Not prepared'}. Payment
-                    completion requests still require signed webhook settlement.
-                  </p>
-                  {order.status === 'PENDING_PAYMENT' &&
-                    Date.parse(order.paymentDeadlineAt) > now && (
-                      <div className="flex flex-wrap gap-3">
-                        <button
-                          className={actionClass}
-                          disabled={
-                            busy ||
-                            Boolean(intent) ||
-                            Boolean(
-                              payment &&
-                              !['CREATING', 'READY'].includes(
-                                payment.preparationStatus,
-                              ),
-                            )
-                          }
-                          onClick={() =>
-                            void run(async () => {
-                              await loadOrder(order.id)
-                              const p = await api.request<Payment>(
-                                '/v1/payments/orders/' + order.id + '/prepare',
-                                { method: 'POST' },
-                              )
-                              guard()
-                              setPayment(p)
-                              setNotice(
-                                'TEST preparation returned. This does not confirm payment.',
-                              )
-                            })
-                          }
-                        >
-                          Prepare TEST payment
-                        </button>
-                        <button
-                          className={actionClass}
-                          disabled={
-                            busy || !paymentEligible(order, payment, now)
-                          }
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                'Run the explicitly enabled TEST card simulation? No real card details are accepted.',
-                              )
-                            )
-                              void run(async () => {
-                                const fresh = await loadOrder(order.id)
-                                if (fresh.status !== 'PENDING_PAYMENT') return
-                                await api.request(
-                                  '/v1/payments/orders/' +
-                                    order.id +
-                                    '/test-complete',
-                                  { method: 'POST' },
-                                )
-                                guard()
-                                setNotice(
-                                  'TEST completion requested. Refresh status to check server settlement.',
-                                )
-                                await loadOrder(order.id)
-                              })
-                          }}
-                        >
-                          Simulate TEST payment
-                        </button>
-                      </div>
-                    )}
-                  {order.status === 'PENDING_PAYMENT' && (
-                    <button
-                      className="text-sm font-bold text-red-700"
-                      disabled={busy}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            'Cancel this unpaid order? Payment cancellation may require server reconciliation.',
-                          )
-                        )
-                          void run(async () => {
-                            const row = readOrder(
-                              await api.request<Order>(
-                                '/v1/orders/' + order.id + '/cancel',
-                                {
-                                  method: 'POST',
-                                },
-                              ),
-                            )
-                            guard()
-                            setOrder(row)
-                            shopping.reload()
-                          })
-                      }}
-                    >
-                      Cancel unpaid order
-                    </button>
-                  )}
-                </>
-              )}
-              {order.status !== 'PENDING_PAYMENT' && (
-                <button
-                  className={actionClass}
-                  disabled={busy}
-                  onClick={() => {
-                    setOrder(null)
-                    setPayment(null)
-                    setHold(null)
-                    setEstimate(null)
-                    setOptions(null)
-                    setIntent(null)
-                    window.history.replaceState(null, '', '/checkout')
-                    shopping.reload()
-                  }}
-                >
-                  Start a new checkout
-                </button>
-              )}
-            </section>
+          {loading ? (
+            <p role="status">Restoring checkout…</p>
           ) : (
             <>
-              {cartBlocked && (
-                <p role="status" className="rounded-xl bg-amber-50 p-4 text-sm">
-                  Resolve guest items, unconfirmed changes or cart errors in
-                  your cart before starting checkout.
-                </p>
-              )}
-              {!addresses.length && (
-                <Link href="/account/addresses" className={actionClass}>
-                  Add a saved delivery address
-                </Link>
-              )}
-              <label className="block text-sm font-bold">
-                Delivery address
-                <select
-                  aria-label="Delivery address"
-                  className={inputClass}
-                  value={addressId}
-                  disabled={busy || active || Boolean(intent)}
-                  onChange={(e) => {
-                    setAddressId(e.target.value)
-                    setKind('')
-                    invalidate()
-                  }}
-                >
-                  <option value="">Select your address</option>
-                  {addresses.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.label}: {a.recipientName}, {a.addressLine1}, {a.city},{' '}
-                      {a.countryCode}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <Link
-                href="/account/addresses"
-                className="text-sm font-bold text-primary"
+              <button
+                className="block w-fit text-sm font-bold text-primary"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    await recover()
+                    shopping.reload()
+                    setNotice('Current server checkout state refreshed.')
+                  })
+                }
               >
-                Manage saved addresses
-              </Link>
-              <label className="block text-sm font-bold">
-                Coupon code (optional)
-                <input
-                  className={inputClass}
-                  maxLength={24}
-                  value={coupon}
-                  disabled={busy || active || Boolean(intent)}
-                  onChange={(e) => {
-                    setCoupon(e.target.value)
-                    invalidate()
-                  }}
-                />
-              </label>
-              {!active && !intent && (
-                <button
-                  className={actionClass}
-                  disabled={
-                    busy ||
-                    cartBlocked ||
-                    !address ||
-                    !shopping.cart?.checkoutReady
-                  }
-                  onClick={() =>
-                    void run(async () => {
-                      if (!address) return
-                      invalidate()
-                      const selection = checkoutSelection(
-                        address.countryCode,
-                        '',
-                        coupon,
-                      )
-                      const result = await api.request<DeliveryOptions>(
-                        '/v1/checkout/delivery-options',
-                        { query: selection },
-                      )
-                      guard()
-                      setOptions(result)
-                      setKind(result.options[0]?.kind || '')
-                    })
-                  }
-                >
-                  Load delivery options
-                </button>
-              )}
-              {options && !active && (
-                <label className="block text-sm font-bold">
-                  Delivery service
-                  <select
-                    aria-label="Delivery service"
-                    className={inputClass}
-                    value={kind}
-                    disabled={busy || Boolean(intent)}
-                    onChange={(e) => {
-                      setKind(e.target.value)
-                      setEstimate(null)
-                    }}
-                  >
-                    {options.options.map((o) => (
-                      <option key={o.kind || 'flat'} value={o.kind || ''}>
-                        {o.label} · {money(o.shippingMinor, options.currency)} ·{' '}
-                        {o.etaNote}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {options && !active && !intent && (
-                <button
-                  className={actionClass}
-                  disabled={busy || cartBlocked || !address}
-                  onClick={() =>
-                    void run(async () => {
-                      if (!address) return
-                      setEstimate(null)
-                      const result = await api.request<Estimate>(
-                        '/v1/checkout/estimate',
-                        {
-                          method: 'POST',
-                          body: checkoutSelection(
-                            address.countryCode,
-                            kind,
-                            coupon,
-                          ),
-                        },
-                      )
-                      guard()
-                      readTotals(result, result.estimatedTotalMinor)
-                      setEstimate(result)
-                    })
-                  }
-                >
-                  Calculate current estimate
-                </button>
-              )}
-              {estimate && !active && (
-                <div className="space-y-4">
-                  <TotalsView
-                    data={estimate}
-                    total={estimate.estimatedTotalMinor}
-                  />
-                  <p className="text-sm">
-                    Estimate only · {estimate.quotedAt} ·{' '}
-                    {estimate.deliveryEtaNote}. Stock is not held yet.
+                Refresh checkout status
+              </button>
+              {intent && (
+                <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <p>
+                    The {intent.kind === 'reserve' ? 'reservation' : 'order'}{' '}
+                    request is unconfirmed. Retry the exact request; do not
+                    create another request.
                   </p>
                   <button
                     className={actionClass}
-                    disabled={
-                      busy || cartBlocked || Boolean(intent) || !address
-                    }
-                    onClick={() =>
-                      void run(async () => {
-                        if (!address) return
-                        const value: Intent = {
-                          kind: 'reserve',
-                          body: {
-                            ...checkoutSelection(
-                              address.countryCode,
-                              kind,
-                              coupon,
-                            ),
-                            requestId: crypto.randomUUID(),
-                          },
-                        }
-                        setIntent(value)
-                        await send(value)
-                      })
-                    }
+                    disabled={busy}
+                    onClick={() => void run(() => send(intent))}
                   >
-                    Reserve current stock for 10 minutes
+                    Retry same request
                   </button>
+                  <p className="text-xs">
+                    After a reload, Refresh checkout status discovers the server
+                    hold or unpaid order. No delivery address is stored in
+                    browser storage.
+                  </p>
                 </div>
               )}
-              {hold && (
-                <div className="space-y-4 rounded-2xl border border-slate-200 p-5">
-                  <h2 className="text-xl font-black">
-                    Stock hold: {hold.status}
-                  </h2>
-                  <p className="text-sm">
-                    {hold.id} · expires {hold.expiresAt}
-                    {expired ? ' · Refresh status: hold deadline passed' : ''}
+              {order ? (
+                <section className="space-y-5 rounded-2xl border border-slate-200 p-5">
+                  <h2 className="text-xl font-black">Order {order.id}</h2>
+                  <Link
+                    href={'/account/orders/' + order.id}
+                    className="block w-fit text-sm font-bold text-primary"
+                  >
+                    Open order details and tracking
+                  </Link>
+                  <p role="status">
+                    Order status: <strong>{order.status}</strong>
                   </p>
-                  <TotalsView data={hold} total={hold.estimatedTotalMinor} />
+                  <TotalsView data={order} total={order.totalMinor} />
+                  {order.lines.map((line) => (
+                    <p key={line.id} className="text-sm">
+                      {line.title} · {line.sku || 'No SKU'} · {line.quantity}{' '}
+                      units · {money(line.netLineTotalMinor, order.currency)}
+                    </p>
+                  ))}
                   <p className="text-sm">
-                    Review the reserved totals. They can differ from the earlier
-                    estimate.
+                    Payment deadline: {order.paymentDeadlineAt}
                   </p>
-                  {active && (
+                  {order.status === 'PAID' ? (
+                    <p className="font-bold text-green-800">
+                      Payment confirmed by the server.
+                    </p>
+                  ) : (
                     <>
+                      <p className="text-sm">
+                        Payment preparation:{' '}
+                        {payment?.preparationStatus || 'Not prepared'}. Payment
+                        completion requests still require signed webhook
+                        settlement.
+                      </p>
+                      {order.status === 'PENDING_PAYMENT' &&
+                        Date.parse(order.paymentDeadlineAt) > now && (
+                          <div className="flex flex-wrap gap-3">
+                            <button
+                              className={actionClass}
+                              disabled={
+                                busy ||
+                                Boolean(intent) ||
+                                Boolean(
+                                  payment &&
+                                    !['CREATING', 'READY'].includes(
+                                      payment.preparationStatus,
+                                    ),
+                                )
+                              }
+                              onClick={() =>
+                                void run(async () => {
+                                  await loadOrder(order.id)
+                                  const p = await api.request<Payment>(
+                                    '/v1/payments/orders/' +
+                                      order.id +
+                                      '/prepare',
+                                    { method: 'POST' },
+                                  )
+                                  guard()
+                                  setPayment(p)
+                                  setNotice(
+                                    'TEST preparation returned. This does not confirm payment.',
+                                  )
+                                })
+                              }
+                            >
+                              Prepare TEST payment
+                            </button>
+                            <button
+                              className={actionClass}
+                              disabled={
+                                busy || !paymentEligible(order, payment, now)
+                              }
+                              onClick={() => {
+                                if (
+                                  window.confirm(
+                                    'Run the explicitly enabled TEST card simulation? No real card details are accepted.',
+                                  )
+                                )
+                                  void run(async () => {
+                                    const fresh = await loadOrder(order.id)
+                                    if (fresh.status !== 'PENDING_PAYMENT')
+                                      return
+                                    await api.request(
+                                      '/v1/payments/orders/' +
+                                        order.id +
+                                        '/test-complete',
+                                      { method: 'POST' },
+                                    )
+                                    guard()
+                                    setNotice(
+                                      'TEST completion requested. Refresh status to check server settlement.',
+                                    )
+                                    await loadOrder(order.id)
+                                  })
+                              }}
+                            >
+                              Simulate TEST payment
+                            </button>
+                          </div>
+                        )}
+                      {order.status === 'PENDING_PAYMENT' && (
+                        <button
+                          className="text-sm font-bold text-red-700"
+                          disabled={busy}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                'Cancel this unpaid order? Payment cancellation may require server reconciliation.',
+                              )
+                            )
+                              void run(async () => {
+                                const row = readOrder(
+                                  await api.request<Order>(
+                                    '/v1/orders/' + order.id + '/cancel',
+                                    {
+                                      method: 'POST',
+                                    },
+                                  ),
+                                )
+                                guard()
+                                setOrder(row)
+                                shopping.reload()
+                              })
+                          }}
+                        >
+                          Cancel unpaid order
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {order.status !== 'PENDING_PAYMENT' && (
+                    <button
+                      className={actionClass}
+                      disabled={busy}
+                      onClick={() => {
+                        setOrder(null)
+                        setPayment(null)
+                        setHold(null)
+                        setEstimate(null)
+                        setOptions(null)
+                        setIntent(null)
+                        window.history.replaceState(null, '', '/checkout')
+                        shopping.reload()
+                      }}
+                    >
+                      Start a new checkout
+                    </button>
+                  )}
+                </section>
+              ) : (
+                <>
+                  {cartBlocked && (
+                    <p
+                      role="status"
+                      className="rounded-xl bg-amber-50 p-4 text-sm"
+                    >
+                      Resolve guest items, unconfirmed changes or cart errors in
+                      your cart before starting checkout.
+                    </p>
+                  )}
+                  {!addresses.length && (
+                    <Link href="/account/addresses" className={actionClass}>
+                      Add a saved delivery address
+                    </Link>
+                  )}
+                  <label className="block text-sm font-bold">
+                    Delivery address
+                    <select
+                      aria-label="Delivery address"
+                      className={inputClass}
+                      value={addressId}
+                      disabled={busy || active || Boolean(intent)}
+                      onChange={(e) => {
+                        setAddressId(e.target.value)
+                        setKind('')
+                        invalidate()
+                      }}
+                    >
+                      <option value="">Select your address</option>
+                      {addresses.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label}: {a.recipientName}, {a.addressLine1},{' '}
+                          {a.city}, {a.countryCode}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Link
+                    href="/account/addresses"
+                    className="block w-fit text-sm font-bold text-primary"
+                  >
+                    Manage saved addresses
+                  </Link>
+                  <label className="block text-sm font-bold">
+                    Coupon code (optional)
+                    <input
+                      className={inputClass}
+                      maxLength={24}
+                      value={coupon}
+                      disabled={busy || active || Boolean(intent)}
+                      onChange={(e) => {
+                        setCoupon(e.target.value)
+                        invalidate()
+                      }}
+                    />
+                  </label>
+                  {!active && !intent && (
+                    <button
+                      className={actionClass}
+                      disabled={
+                        busy ||
+                        cartBlocked ||
+                        !address ||
+                        !shopping.cart?.checkoutReady
+                      }
+                      onClick={() =>
+                        void run(async () => {
+                          if (!address) return
+                          invalidate()
+                          const selection = checkoutSelection(
+                            address.countryCode,
+                            '',
+                            coupon,
+                          )
+                          const result = await api.request<DeliveryOptions>(
+                            '/v1/checkout/delivery-options',
+                            { query: selection },
+                          )
+                          guard()
+                          setOptions(result)
+                          setKind(result.options[0]?.kind || '')
+                        })
+                      }
+                    >
+                      Load delivery options
+                    </button>
+                  )}
+                  {options && !active && (
+                    <label className="block text-sm font-bold">
+                      Delivery service
+                      <select
+                        aria-label="Delivery service"
+                        className={inputClass}
+                        value={kind}
+                        disabled={busy || Boolean(intent)}
+                        onChange={(e) => {
+                          setKind(e.target.value)
+                          setEstimate(null)
+                        }}
+                      >
+                        {options.options.map((o) => (
+                          <option key={o.kind || 'flat'} value={o.kind || ''}>
+                            {o.label} ·{' '}
+                            {money(o.shippingMinor, options.currency)} ·{' '}
+                            {o.etaNote}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {options && !active && !intent && (
+                    <button
+                      className={actionClass}
+                      disabled={busy || cartBlocked || !address}
+                      onClick={() =>
+                        void run(async () => {
+                          if (!address) return
+                          setEstimate(null)
+                          const result = await api.request<Estimate>(
+                            '/v1/checkout/estimate',
+                            {
+                              method: 'POST',
+                              body: checkoutSelection(
+                                address.countryCode,
+                                kind,
+                                coupon,
+                              ),
+                            },
+                          )
+                          guard()
+                          readTotals(result, result.estimatedTotalMinor)
+                          setEstimate(result)
+                        })
+                      }
+                    >
+                      Calculate current estimate
+                    </button>
+                  )}
+                  {estimate && !active && (
+                    <div className="space-y-4">
+                      <TotalsView
+                        data={estimate}
+                        total={estimate.estimatedTotalMinor}
+                      />
+                      <p className="text-sm">
+                        Estimate only · {estimate.quotedAt} ·{' '}
+                        {estimate.deliveryEtaNote}. Stock is not held yet.
+                      </p>
                       <button
                         className={actionClass}
                         disabled={
-                          busy ||
-                          expired ||
-                          Boolean(intent) ||
-                          cartBlocked ||
-                          !address ||
-                          address.countryCode !== hold.countryCode
+                          busy || cartBlocked || Boolean(intent) || !address
                         }
                         onClick={() =>
                           void run(async () => {
                             if (!address) return
-                            const fresh = readReservation(
-                              await api.request<Reservation>(
-                                '/v1/checkout/reservations/' + hold.id,
-                              ),
-                            )
-                            guard()
-                            setHold(fresh)
-                            if (
-                              fresh.status !== 'ACTIVE' ||
-                              Date.parse(fresh.expiresAt) <= Date.now()
-                            )
-                              throw new Error(
-                                'Stock hold has expired. Release/refresh and start again.',
-                              )
                             const value: Intent = {
-                              kind: 'order',
+                              kind: 'reserve',
                               body: {
+                                ...checkoutSelection(
+                                  address.countryCode,
+                                  kind,
+                                  coupon,
+                                ),
                                 requestId: crypto.randomUUID(),
-                                reservationId: hold.id,
-                                shippingAddress: shippingSnapshot(address),
                               },
                             }
                             setIntent(value)
@@ -636,42 +624,149 @@ export function LiveCheckout() {
                           })
                         }
                       >
-                        Create unpaid order
+                        Reserve current stock for 10 minutes
                       </button>
-                      <button
-                        className="ml-4 text-sm font-bold text-red-700"
-                        disabled={busy || Boolean(intent)}
-                        onClick={() =>
-                          void run(async () => {
-                            const row = readReservation(
-                              await api.request<Reservation>(
-                                '/v1/checkout/reservations/' + hold.id,
-                                { method: 'DELETE' },
-                              ),
-                            )
-                            guard()
-                            setHold(row)
-                            setEstimate(null)
-                            shopping.reload()
-                          })
-                        }
-                      >
-                        Release stock hold
-                      </button>
-                      {address?.countryCode !== hold.countryCode && (
-                        <p className="text-sm text-amber-800">
-                          Choose a saved address in {hold.countryCode}, or
-                          release the hold to change destination.
-                        </p>
-                      )}
-                    </>
+                    </div>
                   )}
-                </div>
+                  {hold && (
+                    <div className="space-y-4 rounded-2xl border border-slate-200 p-5">
+                      <h2 className="text-xl font-black">
+                        Stock hold: {hold.status}
+                      </h2>
+                      <p className="text-sm">
+                        {hold.id} · expires {hold.expiresAt}
+                        {expired
+                          ? ' · Refresh status: hold deadline passed'
+                          : ''}
+                      </p>
+                      <TotalsView
+                        data={hold}
+                        total={hold.estimatedTotalMinor}
+                      />
+                      <p className="text-sm">
+                        Review the reserved totals. They can differ from the
+                        earlier estimate.
+                      </p>
+                      {active && (
+                        <>
+                          <button
+                            className={actionClass}
+                            disabled={
+                              busy ||
+                              expired ||
+                              Boolean(intent) ||
+                              cartBlocked ||
+                              !address ||
+                              address.countryCode !== hold.countryCode
+                            }
+                            onClick={() =>
+                              void run(async () => {
+                                if (!address) return
+                                const fresh = readReservation(
+                                  await api.request<Reservation>(
+                                    '/v1/checkout/reservations/' + hold.id,
+                                  ),
+                                )
+                                guard()
+                                setHold(fresh)
+                                if (
+                                  fresh.status !== 'ACTIVE' ||
+                                  Date.parse(fresh.expiresAt) <= Date.now()
+                                )
+                                  throw new Error(
+                                    'Stock hold has expired. Release/refresh and start again.',
+                                  )
+                                const value: Intent = {
+                                  kind: 'order',
+                                  body: {
+                                    requestId: crypto.randomUUID(),
+                                    reservationId: hold.id,
+                                    shippingAddress: shippingSnapshot(address),
+                                  },
+                                }
+                                setIntent(value)
+                                await send(value)
+                              })
+                            }
+                          >
+                            Create unpaid order
+                          </button>
+                          <button
+                            className="ml-4 text-sm font-bold text-red-700"
+                            disabled={busy || Boolean(intent)}
+                            onClick={() =>
+                              void run(async () => {
+                                const row = readReservation(
+                                  await api.request<Reservation>(
+                                    '/v1/checkout/reservations/' + hold.id,
+                                    { method: 'DELETE' },
+                                  ),
+                                )
+                                guard()
+                                setHold(row)
+                                setEstimate(null)
+                                shopping.reload()
+                              })
+                            }
+                          >
+                            Release stock hold
+                          </button>
+                          {address?.countryCode !== hold.countryCode && (
+                            <p className="text-sm text-amber-800">
+                              Choose a saved address in {hold.countryCode}, or
+                              release the hold to change destination.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
-        </>
-      )}
+        </div>
+        <aside className="space-y-5 rounded-[22px] border border-border bg-[#fbfcff] p-6 lg:sticky lg:top-44">
+          <h2 className="text-lg font-extrabold">Order summary</h2>
+          {order ? (
+            <TotalsView data={order} total={order.totalMinor} />
+          ) : hold ? (
+            <TotalsView data={hold} total={hold.estimatedTotalMinor} />
+          ) : estimate ? (
+            <TotalsView data={estimate} total={estimate.estimatedTotalMinor} />
+          ) : (
+            <>
+              <div className="flex justify-between gap-3 text-sm">
+                <span>Items subtotal</span>
+                <strong>
+                  {shopping.cart?.currency
+                    ? money(shopping.cart.subtotalMinor, shopping.cart.currency)
+                    : 'Not available yet'}
+                </strong>
+              </div>
+              <p className="text-xs leading-6 text-muted">
+                Delivery and taxes are calculated after selecting your address
+                and delivery service.
+              </p>
+            </>
+          )}
+          <div className="border-t border-border pt-4 text-xs leading-6 text-muted">
+            <p className="flex items-center gap-2 font-bold text-ink">
+              <PackageCheck size={17} />
+              Review before placing your order
+            </p>
+            <p className="mt-2">
+              {hold
+                ? 'Your stock hold and its expiry are shown in checkout.'
+                : 'Adding items to your cart does not reserve stock.'}
+            </p>
+            <p className="mt-3 flex items-center gap-2">
+              <LockKeyhole size={16} />
+              TEST payments only
+            </p>
+          </div>
+        </aside>
+      </div>
     </section>
   )
 }

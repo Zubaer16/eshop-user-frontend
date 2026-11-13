@@ -1,14 +1,11 @@
 import type { MetadataRoute } from 'next'
-import { isPreviewMode } from '@/lib/integration-mode'
 
-/** Visual install metadata only. This preview is not an offline-capable PWA. */
+/** Browser install metadata; offline checkout is not supported. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: isPreviewMode ? 'eShop Storefront Preview' : 'eShop',
+    name: 'eShop',
     short_name: 'eShop',
-    description: isPreviewMode
-      ? 'Multi-category storefront UI preview. No live orders or payments.'
-      : 'eShop storefront and your account.',
+    description: 'eShop storefront and your account.',
     start_url: '/',
     display: 'browser',
     background_color: '#FFFFFF',

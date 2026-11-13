@@ -2,7 +2,6 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { api, ApiRequestError } from '@/lib/api/client'
-import { isPreviewMode } from '@/lib/integration-mode'
 export function RecoveryForm({
   mode,
 }: {
@@ -81,17 +80,7 @@ export function RecoveryForm({
       setBusy(false)
     }
   }
-  if (isPreviewMode)
-    return (
-      <section className="container-shell py-12">
-        <h1 className="text-2xl font-black">
-          Account action unavailable in preview
-        </h1>
-        <Link href="/sign-in" className="mt-4 block text-primary">
-          Sign in
-        </Link>
-      </section>
-    )
+
   return (
     <section className="mx-auto my-12 max-w-md rounded-3xl border border-slate-200 bg-white p-7">
       <h1 className="text-3xl font-black">

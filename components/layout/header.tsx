@@ -14,7 +14,6 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import { isPreviewMode } from '@/lib/integration-mode'
 import { Logo } from '@/components/layout/logo'
 import {
   Sheet,
@@ -22,15 +21,12 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { useCommerceStore } from '@/stores/commerce-store'
-import { useStoreReady } from '@/hooks/use-store-ready'
 import { dictionary } from '@/lib/i18n'
-import { categories as previewCategories } from '@/lib/catalog'
 import { useCatalog } from '@/components/catalog/catalog-provider'
 import { cn } from '@/lib/utils'
 import { useUiCopy } from '@/hooks/use-ui-copy'
 import { useCommerce } from '@/components/shopping/commerce-provider'
-import { useStoreConfiguration } from '@/components/store/live-store'
+import { useStoreConfiguration } from '@/components/store/store-content'
 
 function SearchBox({ compact = false }: { compact?: boolean }) {
   const router = useRouter()
@@ -84,37 +80,27 @@ function Counter({ count }: { count: number }) {
 export function Header() {
   const store = useStoreConfiguration()
   const shopping = useCommerce()
-  const { categories: liveCategories } = useCatalog()
-  const categories = isPreviewMode
-    ? previewCategories.map((c) => ({ ...c, slug: c.id }))
-    : liveCategories.map((c) => ({
-        id: c.id,
-        slug: c.slug,
-        label: c.name,
-        description: c.description,
-      }))
+  const { categories: catalogCategories } = useCatalog()
+  const categories = catalogCategories
+    .filter((c) => c.active && c.parentId === null)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((c) => ({
+      id: c.id,
+      slug: c.slug,
+      label: c.name,
+      description: c.description,
+    }))
   const pathname = usePathname()
-  const ready = useStoreReady()
-  const cart = useCommerceStore((s) => s.cart)
-  const wishlist = useCommerceStore((s) => s.wishlist)
-  const setCartOpen = useCommerceStore((s) => s.setCartOpen)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [categoriesOpen, setCategoriesOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const categoryTriggerRef = useRef<HTMLButtonElement>(null)
   const t = dictionary()
-  const cartCount = isPreviewMode
-    ? ready
-      ? cart.reduce((sum, item) => sum + item.quantity, 0)
-      : 0
-    : !shopping.loading && !shopping.cartError
+  const cartCount =
+    !shopping.loading && !shopping.cartError
       ? shopping.cart?.items.reduce((sum, item) => sum + item.quantity, 0) || 0
       : null
-  const wishCount = isPreviewMode
-    ? ready
-      ? wishlist.length
-      : 0
-    : shopping.wishlist?.count || 0
+  const wishCount = shopping.wishlist?.count || 0
   const links = [
     { href: '/shop', label: t.shop },
     { href: '/categories', label: t.categories },
@@ -174,9 +160,7 @@ export function Header() {
             className="hidden rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-primary md:inline-flex"
             aria-label="Preferred display currency; prices retain their listed currency"
           >
-            {isPreviewMode
-              ? 'USD $'
-              : store.operations?.displayCurrency || 'USD'}
+            {store.operations?.displayCurrency || 'USD'}
           </span>
           <Link
             href="/account"
@@ -188,15 +172,15 @@ export function Header() {
               {t.account}
             </span>
           </Link>
-          {!isPreviewMode && (
+          {
             <Link
               href="/account/notifications"
               className="rounded-lg p-2 text-sm font-bold text-primary"
             >
               Inbox
             </Link>
-          )}
-          {(isPreviewMode || store.operations?.showWishlist !== false) && (
+          }
+          {store.operations?.showWishlist !== false && (
             <Link
               href="/wishlist"
               aria-label={t.wishlist}
@@ -215,8 +199,7 @@ export function Header() {
                 : `Open cart, ${cartCount} items`
             }
             onClick={() => {
-              if (isPreviewMode) setCartOpen(true)
-              else shopping.setCartOpen(true)
+              shopping.setCartOpen(true)
             }}
             className="relative flex size-10 items-center justify-center rounded-lg hover:bg-slate-100"
           >
@@ -313,32 +296,15 @@ export function Header() {
                 {label}
               </Link>
             ))}
-          {isPreviewMode ? (
-            <>
-              <Link
-                href="/shop?category=footwear"
-                className="text-[13px] font-semibold text-[#4c5872] hover:text-primary"
-              >
-                {'Shoes'}
-              </Link>
-              <Link
-                href="/shop?category=fashion"
-                className="text-[13px] font-semibold text-[#4c5872] hover:text-primary"
-              >
-                {'Fashion'}
-              </Link>
-            </>
-          ) : (
-            categories.slice(0, 2).map((c) => (
-              <Link
-                key={c.id}
-                href={'/shop?category=' + encodeURIComponent(c.slug)}
-                className="text-[13px] font-semibold text-[#4c5872] hover:text-primary"
-              >
-                {c.label}
-              </Link>
-            ))
-          )}
+          {categories.slice(0, 2).map((c) => (
+            <Link
+              key={c.id}
+              href={'/shop?category=' + encodeURIComponent(c.slug)}
+              className="text-[13px] font-semibold text-[#4c5872] hover:text-primary"
+            >
+              {c.label}
+            </Link>
+          ))}
           <span className="ml-auto text-[12px] font-semibold text-[#52708f]">
             ✦ {t.freeShipping}
           </span>
@@ -379,8 +345,7 @@ export function Header() {
             className="mt-3 flex items-center justify-between rounded-xl bg-blue-50 px-3 py-3 text-sm font-extrabold text-primary"
           >
             <span className="flex items-center gap-2">
-              <UserRound size={17} />{' '}
-              {isPreviewMode ? 'Account preview' : 'Your account'}
+              <UserRound size={17} /> Your account
             </span>
             <ArrowRight size={16} />
           </Link>

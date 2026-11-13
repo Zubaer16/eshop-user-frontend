@@ -2,7 +2,6 @@
 import { useEffect } from 'react'
 import { api } from '@/lib/api/client'
 import { useAuth } from '@/components/auth/auth-provider'
-import { isPreviewMode } from '@/lib/integration-mode'
 import {
   pauseBrowserPush,
   restoreBrowserPush,
@@ -11,7 +10,6 @@ import {
 export function PushLifecycle() {
   const { ready } = useAuth()
   useEffect(() => {
-    if (isPreviewMode) return
     pauseBrowserPush()
     if (!ready) return
     const sync = () => {

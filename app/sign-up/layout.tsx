@@ -1,13 +1,13 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 
-// Frontend-only screen: do not index or imply a live commerce service.
+// Authentication pages are excluded from indexing.
 export const metadata: Metadata = {
-  title: 'Create Account Preview',
+  title: 'Create Account',
   description: 'Create your eShop customer account with email and password.',
   robots: { index: false, follow: false },
 }
 
-export default function PreviewLayout({ children }: { children: ReactNode }) {
+export default function Layout({ children }: { children: ReactNode }) {
   return children
 }

@@ -1,14 +1,13 @@
 'use client'
 import Image from 'next/image'
-import { useStoreConfiguration } from '@/components/store/live-store'
-import { isPreviewMode } from '@/lib/integration-mode'
+import { useStoreConfiguration } from '@/components/store/store-content'
 import { imageUrl } from '@/lib/api/catalog'
 import Link from 'next/link'
 
 export function Logo({ light = false }: { light?: boolean }) {
   const store = useStoreConfiguration(),
-    name = (!isPreviewMode && store.data?.profile.storeName) || 'eShop',
-    logo = !isPreviewMode && imageUrl(store.data?.branding.logo?.url)
+    name = store.data?.profile.storeName || 'eShop',
+    logo = imageUrl(store.data?.branding.logo?.url)
   return (
     <Link
       href="/"

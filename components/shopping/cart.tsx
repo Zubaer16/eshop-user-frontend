@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element -- Validated public product media. */
 'use client'
 import Link from 'next/link'
 import { useState, type FormEvent } from 'react'
@@ -7,7 +8,17 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
-import { money } from '@/lib/api/catalog'
+import {
+  Box,
+  ChevronRight,
+  Heart,
+  Minus,
+  Plus,
+  ShoppingBag,
+} from 'lucide-react'
+import { usePublicProduct } from '@/hooks/use-public-product'
+import { ProductCard } from '@/components/store/product-card'
+import { money, imageUrl } from '@/lib/api/catalog'
 import {
   productSelection,
   type CartLine,
@@ -90,27 +101,42 @@ export function ProductActions({
     }
   }
   return (
-    <div
-      className={
-        compact
-          ? 'mt-3 space-y-2'
-          : 'mt-7 space-y-4 rounded-2xl border border-slate-200 bg-white p-5'
-      }
-    >
+    <div className={compact ? 'mt-3 space-y-2' : 'mt-5 space-y-4'}>
       {!compact && (
-        <label className="block text-sm font-bold">
-          Quantity
-          <input
-            type="number"
-            required
-            min={1}
-            max={99}
-            step={1}
-            className={inputClass}
-            value={quantity}
-            onChange={(e) => setQuantity(Number(e.target.value))}
-          />
-        </label>
+        <div className="block text-sm font-bold">
+          <span>Quantity</span>
+          <div className="mt-2 flex h-12 w-fit items-center rounded-xl border border-border">
+            <button
+              type="button"
+              aria-label="Decrease quantity"
+              disabled={quantity <= 1}
+              onClick={() => setQuantity((value) => Math.max(1, value - 1))}
+              className="h-full px-4 disabled:opacity-35"
+            >
+              <Minus size={17} />
+            </button>
+            <input
+              aria-label="Quantity"
+              type="number"
+              required
+              min={1}
+              max={99}
+              step={1}
+              className="h-full w-16 border-0 bg-transparent text-center text-sm font-bold outline-none"
+              value={quantity}
+              onChange={(e) => setQuantity(Number(e.target.value))}
+            />
+            <button
+              type="button"
+              aria-label="Increase quantity"
+              disabled={quantity >= 99}
+              onClick={() => setQuantity((value) => Math.min(99, value + 1))}
+              className="h-full px-4 disabled:opacity-35"
+            >
+              <Plus size={17} />
+            </button>
+          </div>
+        </div>
       )}
       {compact && product.hasVariants ? (
         <Link
@@ -176,6 +202,13 @@ function Line({
 }) {
   const shopping = useCommerce(),
     [quantity, setQuantity] = useState(String(item.quantity))
+  const visual = usePublicProduct(
+    item.productId,
+    item.title,
+    undefined,
+    item.status !== 'UNPUBLISHED',
+  )
+  const src = imageUrl(visual.product?.gallery[0]?.url)
   async function submit(event: FormEvent) {
     event.preventDefault()
     const selection = {
@@ -188,66 +221,89 @@ function Line({
       : shopping.setQuantity(selection))
   }
   return (
-    <article className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="font-bold">{item.title}</h3>
-          <p className="mt-1 text-xs text-muted">
-            SKU: {item.sku || 'Unavailable'}
-          </p>
-          <p className="mt-1 text-xs text-muted">
-            {item.variantId ? 'Selected variant retained' : 'Simple product'}
-          </p>
+    <article className="rounded-2xl border border-border bg-white p-4 sm:p-5">
+      <div className="flex gap-4 sm:gap-5">
+        <div
+          ref={visual.ref}
+          className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#f5f7fb] sm:size-28"
+        >
+          {src ? (
+            <img
+              src={src}
+              alt={item.title}
+              width={112}
+              height={112}
+              loading="lazy"
+              className="h-full w-full object-contain p-2"
+            />
+          ) : (
+            <Box size={28} className="text-muted" />
+          )}
         </div>
-        <p className="whitespace-nowrap text-sm font-bold">
-          {money(item.lineTotalMinor, item.currency)}
-        </p>
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-bold">{item.title}</h3>
+              <p className="mt-1 text-xs text-muted">
+                SKU: {item.sku || 'Unavailable'}
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                {item.variantId
+                  ? 'Selected variant retained'
+                  : 'Simple product'}
+              </p>
+            </div>
+            <p className="whitespace-nowrap text-sm font-bold">
+              {money(item.lineTotalMinor, item.currency)}
+            </p>
+          </div>
+          <p className="text-xs text-muted">
+            {money(item.unitPriceMinor, item.currency)} per unit ·{' '}
+            {item.availableQuantity} currently available
+          </p>
+          {item.status !== 'AVAILABLE' && (
+            <p className="text-sm font-semibold text-amber-800">
+              {item.status.replaceAll('_', ' ')} — update or remove this item
+              before checkout.
+            </p>
+          )}
+          <form className="flex flex-wrap items-end gap-2" onSubmit={submit}>
+            <label className="block text-xs font-bold">
+              Quantity for {item.sku || item.title}
+              <input
+                className={inputClass + ' max-w-24'}
+                type="number"
+                required
+                min={1}
+                max={99}
+                step={1}
+                value={quantity}
+                disabled={shopping.busy || Boolean(shopping.pending)}
+                onChange={(e) => setQuantity(e.target.value)}
+              />
+            </label>
+            <button
+              className={actionClass}
+              disabled={shopping.busy || Boolean(shopping.pending)}
+              type="submit"
+            >
+              Update quantity
+            </button>
+            <button
+              type="button"
+              className="min-h-11 px-2 text-sm font-bold text-red-700 disabled:opacity-50"
+              disabled={shopping.busy || Boolean(shopping.pending)}
+              onClick={() => {
+                void (guestPending
+                  ? shopping.removeGuest(item.id)
+                  : shopping.remove(item.id))
+              }}
+            >
+              Remove item
+            </button>
+          </form>
+        </div>
       </div>
-      <p className="text-xs text-muted">
-        {money(item.unitPriceMinor, item.currency)} per unit ·{' '}
-        {item.availableQuantity} currently available
-      </p>
-      {item.status !== 'AVAILABLE' && (
-        <p className="text-sm font-semibold text-amber-800">
-          {item.status.replaceAll('_', ' ')} — update or remove this item before
-          checkout.
-        </p>
-      )}
-      <form className="flex flex-wrap items-end gap-2" onSubmit={submit}>
-        <label className="block text-xs font-bold">
-          Quantity for {item.sku || item.title}
-          <input
-            className={inputClass + ' max-w-24'}
-            type="number"
-            required
-            min={1}
-            max={99}
-            step={1}
-            value={quantity}
-            disabled={shopping.busy || Boolean(shopping.pending)}
-            onChange={(e) => setQuantity(e.target.value)}
-          />
-        </label>
-        <button
-          className={actionClass}
-          disabled={shopping.busy || Boolean(shopping.pending)}
-          type="submit"
-        >
-          Update quantity
-        </button>
-        <button
-          type="button"
-          className="min-h-11 px-2 text-sm font-bold text-red-700 disabled:opacity-50"
-          disabled={shopping.busy || Boolean(shopping.pending)}
-          onClick={() => {
-            void (guestPending
-              ? shopping.removeGuest(item.id)
-              : shopping.remove(item.id))
-          }}
-        >
-          Remove item
-        </button>
-      </form>
     </article>
   )
 }
@@ -270,7 +326,7 @@ function Lines({
     </div>
   )
 }
-export function CartContents() {
+export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
   const shopping = useCommerce(),
     quote = shopping.cart
   return (
@@ -340,7 +396,8 @@ export function CartContents() {
           Your cart could not be loaded. No sample items are substituted.
         </p>
       ) : !quote?.items.length ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+        <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-[#fbfcff] p-6 text-center">
+          <ShoppingBag size={44} className="mb-5 text-primary" />
           <h2 className="font-bold">Your cart is empty</h2>
           <Link
             className="mt-4 inline-block text-sm font-bold text-primary"
@@ -351,9 +408,16 @@ export function CartContents() {
           </Link>
         </div>
       ) : (
-        <>
+        <div
+          className={
+            fullPage
+              ? 'grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_350px]'
+              : 'space-y-5'
+          }
+        >
           <Lines quote={quote} />
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <aside className="h-fit space-y-4 rounded-2xl border border-border bg-[#fbfcff] p-6">
+            <h2 className="text-lg font-extrabold">Order summary</h2>
             <div className="flex justify-between font-bold">
               <span>Available-items subtotal</span>
               <span>
@@ -382,8 +446,9 @@ export function CartContents() {
             >
               Clear cart
             </button>
-          </div>
-        </>
+            {fullPage && <CartContinue />}
+          </aside>
+        </div>
       )}
       {shopping.authenticated &&
         shopping.guest &&
@@ -425,40 +490,32 @@ export function CartContents() {
             </div>
           </section>
         )}
-      {shopping.authenticated ? (
-        <div>
-          <Link
-            href="/checkout"
-            className={actionClass + ' w-full'}
-            onClick={() => shopping.setCartOpen(false)}
-          >
-            Continue to checkout
-          </Link>
-          <p className="mt-2 text-xs text-muted">
-            Resolve guest items and unconfirmed changes before reserving stock.
-          </p>
-        </div>
-      ) : (
-        <Link
-          className={actionClass + ' w-full'}
-          href="/sign-in?next=%2Fcart"
-          onClick={() => shopping.setCartOpen(false)}
-        >
-          Sign in to continue
-        </Link>
-      )}
+      {(!fullPage || !quote?.items.length) && <CartContinue />}
     </div>
   )
 }
-export function LiveCartPage() {
+export function CartPage() {
   return (
-    <section className="container-shell max-w-4xl py-10">
-      <h1 className="mb-7 text-3xl font-black">Your cart</h1>
-      <CartContents />
+    <section className="container-shell pb-20 pt-9">
+      <nav
+        aria-label="Breadcrumb"
+        className="mb-5 flex items-center gap-1.5 text-xs text-muted"
+      >
+        <Link href="/">Home</Link>
+        <ChevronRight size={14} />
+        <span className="font-bold text-ink">Cart</span>
+      </nav>
+      <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
+        Your cart
+      </h1>
+      <p className="mb-8 mt-2 text-sm text-muted">
+        Review your everyday finds before checkout.
+      </p>
+      <CartContents fullPage />
     </section>
   )
 }
-export function LiveCartDrawer() {
+export function CartDrawer() {
   const shopping = useCommerce()
   return (
     <Sheet open={shopping.cartOpen} onOpenChange={shopping.setCartOpen}>
@@ -483,11 +540,17 @@ export function LiveCartDrawer() {
     </Sheet>
   )
 }
-export function LiveWishlist() {
+export function WishlistPage() {
   const shopping = useCommerce()
   return (
-    <section className="container-shell max-w-4xl py-10">
-      <h1 className="text-3xl font-black">Saved items</h1>
+    <section className="container-shell pb-20 pt-9">
+      <p className="mb-3 flex items-center gap-2 text-xs font-extrabold uppercase tracking-widest text-primary">
+        <Heart size={16} />
+        Your favorites
+      </p>
+      <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
+        Saved items
+      </h1>
       <p className="mt-3 text-sm text-muted">
         Saved on your account. Unpublished products stay hidden until
         legitimately republished.
@@ -504,32 +567,9 @@ export function LiveWishlist() {
         <p role="status">Loading saved items…</p>
       ) : (
         shopping.wishlist && (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">
             {shopping.wishlist.items.map((item) => (
-              <article
-                key={item.productId}
-                className="rounded-2xl border border-slate-200 bg-white p-5"
-              >
-                <Link
-                  href={'/product/' + item.slug}
-                  className="text-lg font-extrabold text-primary"
-                >
-                  {item.title}
-                </Link>
-                <p className="mt-4 font-bold">
-                  {money(item.priceMinor, item.currency)}
-                </p>
-                <p className="mt-2 text-xs text-muted">Saved {item.addedAt}</p>
-                <button
-                  className="mt-5 text-sm font-bold text-red-700 disabled:opacity-50"
-                  disabled={shopping.busy}
-                  onClick={() => {
-                    void shopping.save(item.productId, false)
-                  }}
-                >
-                  Remove saved item
-                </button>
-              </article>
+              <SavedProduct key={item.productId} item={item} />
             ))}
             {!shopping.wishlist.items.length && (
               <p className="py-8 text-sm text-muted">
@@ -540,5 +580,87 @@ export function LiveWishlist() {
         )
       )}
     </section>
+  )
+}
+
+function SavedProduct({
+  item,
+}: {
+  item: {
+    productId: string
+    slug: string
+    title: string
+    currency: string
+    priceMinor: number
+  }
+}) {
+  const shopping = useCommerce()
+  const visual = usePublicProduct(item.productId, item.title, item.slug)
+  return (
+    <div ref={visual.ref}>
+      {visual.product ? (
+        <ProductCard product={visual.product} />
+      ) : (
+        <article className="overflow-hidden rounded-[18px] border border-border bg-white">
+          <Link
+            href={'/product/' + item.slug}
+            className="flex aspect-[1.03] items-center justify-center bg-[#f5f7fb]"
+          >
+            <Box size={40} className="text-muted" />
+          </Link>
+          <div className="p-4">
+            <Link
+              href={'/product/' + item.slug}
+              className="line-clamp-2 text-sm font-bold"
+            >
+              {item.title}
+            </Link>
+            <p className="mt-3 font-extrabold">
+              {money(item.priceMinor, item.currency)}
+            </p>
+            <button
+              type="button"
+              disabled={shopping.busy}
+              onClick={() => {
+                void shopping.save(item.productId, false)
+              }}
+              className="mt-4 text-xs font-bold text-red-700"
+            >
+              Remove saved item
+            </button>
+          </div>
+        </article>
+      )}
+    </div>
+  )
+}
+
+function CartContinue() {
+  const shopping = useCommerce()
+  return (
+    <>
+      {shopping.authenticated ? (
+        <div>
+          <Link
+            href="/checkout"
+            className={actionClass + ' w-full'}
+            onClick={() => shopping.setCartOpen(false)}
+          >
+            Continue to checkout
+          </Link>
+          <p className="mt-2 text-xs text-muted">
+            Resolve guest items and unconfirmed changes before reserving stock.
+          </p>
+        </div>
+      ) : (
+        <Link
+          className={actionClass + ' w-full'}
+          href="/sign-in?next=%2Fcart"
+          onClick={() => shopping.setCartOpen(false)}
+        >
+          Sign in to continue
+        </Link>
+      )}
+    </>
   )
 }

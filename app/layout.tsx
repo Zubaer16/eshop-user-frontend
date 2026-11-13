@@ -5,28 +5,10 @@ import { UserBoundary } from '@/components/auth/user-boundary'
 import { Header } from '@/components/layout/header'
 import { Footer } from '@/components/layout/footer'
 import { Providers } from '@/components/layout/providers'
-import { isPreviewMode } from '@/lib/integration-mode'
 import { apiOrigin } from '@/lib/api/runtime'
 import { imageUrl } from '@/lib/api/catalog'
 
-const previewMetadata: Metadata = {
-  title: {
-    default: 'eShop | Everyday Finds, Extraordinary Living',
-    template: '%s | eShop',
-  },
-  description:
-    'Discover thoughtfully picked everyday essentials, tech, fashion, home goods and more. eShop storefront preview.',
-  applicationName: 'eShop',
-  openGraph: {
-    title: 'eShop | Storefront Preview',
-    description:
-      'Explore a multi-category shopping experience. Preview only; shopping is not yet available; customer sign-in is available.',
-    type: 'website',
-  },
-  robots: { index: false, follow: false }, // Preview only: enable indexing after live catalog and SEO are ready.
-}
 export async function generateMetadata(): Promise<Metadata> {
-  if (isPreviewMode) return previewMetadata
   await connection()
   try {
     const origin = apiOrigin(

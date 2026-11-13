@@ -8,7 +8,6 @@ import {
 } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { api, authChannelName, sessionSource } from '@/lib/api/client'
-import { isPreviewMode } from '@/lib/integration-mode'
 import type { Session } from '@/lib/api/runtime'
 const Context = createContext<{ session: Session; ready: boolean } | null>(null)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -20,10 +19,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false)
   useEffect(() => {
     let active = true
-    if (isPreviewMode) {
-      setReady(true)
-      return
-    }
     void api.restoreSession().finally(() => {
       if (active) setReady(true)
     })
@@ -74,10 +69,9 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     pathname = usePathname(),
     router = useRouter()
   useEffect(() => {
-    if (!isPreviewMode && ready && session.status === 'anonymous')
+    if (ready && session.status === 'anonymous')
       router.replace('/sign-in?next=' + encodeURIComponent(pathname))
   }, [ready, session.status, pathname, router])
-  if (isPreviewMode) return children
   if (!ready || session.status !== 'authenticated')
     return (
       <p role="status" className="p-8 text-sm text-slate-600">

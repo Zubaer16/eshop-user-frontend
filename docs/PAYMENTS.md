@@ -1,5 +1,7 @@
 # Payment Integration — Stripe Test Mode
 
+**Current state, 2026-11-13:** the single Storefront uses the existing Backend checkout/reservation/order/TEST-payment APIs. The former disabled sample checkout has been removed. Earlier planning notes below are historical; actual gates, signed webhook/reconciliation and deployment configuration follow the Backend payment/showcase documentation. Only confirmed Backend state indicates paid/refunded; this cleanup does not enable live cards or execute provider writes. See [consolidation](STOREFRONT_CONSOLIDATION.md).
+
 ## Selected approach
 
 Stripe **test mode** will be used for checkout integration and end-to-end testing when the backend is approved for development. **There is no active Stripe integration in this repository.** Buttons that could place orders or charge cards must remain disabled until secure server integration is available and tested.

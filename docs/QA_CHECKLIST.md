@@ -1,5 +1,7 @@
 # Frontend QA Checklist
 
+**Current workflow, 2026-11-13:** exercise the single API-backed storefront; the temporary sample UI and its journeys/helpers have been removed. Use [the current E2E guide](E2E_TESTING.md) and [consolidation record](STOREFRONT_CONSOLIDATION.md). Older mock-only setup steps below are historical, not executable requirements. Keep auth/ownership, loading/error/empty handling, exact server totals, variant/quantity payloads and recovery checks.
+
 ## Setup
 
 - Use Node.js 24, run `npm ci`, `npm run check`, and `npm audit --omit=dev`.

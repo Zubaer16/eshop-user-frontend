@@ -1,5 +1,4 @@
 'use client'
-import Link from 'next/link'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '@/lib/api/client'
 import {
@@ -38,38 +37,12 @@ function useAccountResource<T>(route: string) {
   }, [route, revision])
   return { data, error, reload: () => setRevision((value) => value + 1) }
 }
-function AccountNav() {
-  return (
-    <nav
-      aria-label="Your account navigation"
-      className="my-6 flex flex-wrap gap-5 text-sm font-bold text-primary"
-    >
-      <Link href="/account">Account overview</Link>
-      <Link href="/account/addresses">Saved addresses</Link>
-      <Link href="/account/settings">Security settings</Link>
-      <Link href="/wishlist">Saved items</Link>
-      <Link href="/cart">Your cart</Link>
-      <Link href="/account/orders">Your orders</Link>
-      <Link href="/account/notifications">
-        Inbox and notification preferences
-      </Link>
-      <button
-        onClick={() => {
-          void api.signOut()
-        }}
-      >
-        Sign out
-      </button>
-    </nav>
-  )
-}
 export function AccountHome() {
   const resource = useAccountResource<Profile>('/v1/account/profile')
   const [notice, setNotice] = useState('')
   return (
     <section className="container-shell max-w-4xl py-10">
       <h1 className="text-3xl font-black">Your account</h1>
-      <AccountNav />
       {notice && (
         <p role="status" className="my-4 text-sm text-primary">
           {notice}
@@ -163,7 +136,7 @@ function ProfileForm({
     </div>
   )
 }
-export function LiveAddresses() {
+export function Addresses() {
   const resource = useAccountResource<{ items: Address[]; count: number }>(
     '/v1/account/addresses',
   )
@@ -205,7 +178,6 @@ export function LiveAddresses() {
   return (
     <section className="container-shell max-w-4xl py-10">
       <h1 className="text-3xl font-black">Saved addresses</h1>
-      <AccountNav />
       <p className="mb-5 text-sm text-muted">
         Private to your account. Saving a country does not guarantee an enabled
         shipping lane.
