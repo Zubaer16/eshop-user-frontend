@@ -1,5 +1,8 @@
 # Storefront architecture
 
+Current hosted Stripe checkout and stock reservation behavior is documented in [the final checkout flow](CART_QUANTITY_AUTOSAVE_2026-11-13.md). Its draft-cart, final-reservation and explicit shortage-recovery sections describe the current implementation.
+
+
 Current quantity/save policy: [cart autosave and checkout validation](CART_QUANTITY_AUTOSAVE_2026-11-13.md). This supersedes older manual quantity forms and Add-time stock-rejection notes below.
 
 

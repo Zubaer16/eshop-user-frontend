@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { ChevronRight, LockKeyhole, PackageCheck } from 'lucide-react'
+import { ChevronRight, LockKeyhole } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '@/lib/api/client'
 import { money } from '@/lib/api/catalog'
@@ -9,79 +9,66 @@ import {
   canonicalId,
   checkoutSelection,
   shippingSnapshot,
-  readTotals,
-  readReservation,
   readOrder,
-  paymentEligible,
-  type Estimate,
-  type Reservation,
-  type Order,
+  readReservation,
+  hostedCheckout,
+  stockShortages,
+  type StockShortage,
   type Payment,
-  type Recovery,
+  type Order,
   type DeliveryOptions,
+  type Recovery,
+  type Reservation,
   type Selection,
   type ShippingAddress,
-  type Totals,
 } from '@/lib/api/checkout'
 import { shoppingLock } from '@/lib/api/guest-cart-client'
 import { useCommerce } from './commerce-provider'
 import { actionClass, inputClass, ErrorMessage } from './cart'
 
-type Intent =
-  | { kind: 'reserve'; body: Selection & { requestId: string } }
-  | {
-      kind: 'order'
-      body: {
-        requestId: string
-        reservationId: string
-        shippingAddress: ShippingAddress
-      }
-    }
-function TotalsView({ data, total }: { data: Totals; total: number }) {
-  return (
-    <dl className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-      {[
-        ['Merchandise', data.subtotalMinor],
-        ['Discount', -data.discountMinor],
-        ['Shipping', data.shippingMinor],
-        ['Tax', data.taxMinor],
-        ['Total', total],
-      ].map(([label, value]) => (
-        <div key={String(label)} className="flex justify-between gap-4">
-          <dt>{label}</dt>
-          <dd className="font-bold">{money(Number(value), data.currency)}</dd>
-        </div>
-      ))}
-    </dl>
-  )
+type CheckoutIntent = Selection & {
+  requestId: string
+  shippingAddress: ShippingAddress
 }
+
 export function Checkout() {
   const shopping = useCommerce()
-  const [addresses, setAddresses] = useState<Address[]>([]),
-    [addressId, setAddressId] = useState(''),
-    [coupon, setCoupon] = useState(''),
-    [kind, setKind] = useState(''),
-    [options, setOptions] = useState<DeliveryOptions | null>(null),
-    [estimate, setEstimate] = useState<Estimate | null>(null),
-    [hold, setHold] = useState<Reservation | null>(null),
-    [order, setOrder] = useState<Order | null>(null),
-    [payment, setPayment] = useState<Payment | null>(null),
-    [intent, setIntent] = useState<Intent | null>(null),
-    [busy, setBusy] = useState(false),
-    [loading, setLoading] = useState(true),
-    [error, setError] = useState(''),
-    [notice, setNotice] = useState(''),
-    [now, setNow] = useState(Date.now())
-  const mounted = useRef(true),
-    writing = useRef(false),
-    owner = useRef(api.getSnapshot())
-  const address = addresses.find((a) => a.id === addressId)
+  const [addresses, setAddresses] = useState<Address[]>([])
+  const [addressId, setAddressId] = useState('')
+  const [coupon, setCoupon] = useState('')
+  const [appliedCoupon, setAppliedCoupon] = useState('')
+  const [kind, setKind] = useState('')
+  const [options, setOptions] = useState<DeliveryOptions | null>(null)
+  const [order, setOrder] = useState<Order | null>(null)
+  const [payment, setPayment] = useState<Payment | null>(null)
+  const [hold, setHold] = useState<Reservation | null>(null)
+  const [intent, setIntent] = useState<CheckoutIntent | null>(null)
+  const [shortages, setShortages] = useState<StockShortage[]>([])
+  const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [deliveryLoading, setDeliveryLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const mounted = useRef(true)
+  const writing = useRef(false)
+  const redirecting = useRef(false)
+  const owner = useRef(api.getSnapshot())
+  const address = addresses.find((row) => row.id === addressId)
+  const activeHold = hold?.status === 'ACTIVE'
   const cartBlocked =
     shopping.loading ||
     shopping.busy ||
     Boolean(
       shopping.pending || shopping.cartError || shopping.guest?.items.length,
     )
+  const cartVersion =
+    shopping.cart?.items
+      .map((line) => [line.id, line.quantity, line.unitPriceMinor].join(':'))
+      .join('|') || ''
+  const selectedDelivery = options?.options.find(
+    (option) => (option.kind || '') === kind,
+  )
+
   function guard() {
     const current = api.getSnapshot()
     if (
@@ -93,121 +80,229 @@ export function Checkout() {
       throw new Error('The account changed. Reopen checkout.')
   }
   async function loadOrder(id: string) {
-    const row = readOrder(await api.request<Order>('/v1/orders/' + id))
-    const p = await api.request<Payment | null>('/v1/payments/orders/' + id)
+    let current = readOrder(await api.request<Order>('/v1/orders/' + id))
+    const prepared = await api.request<Payment | null>(
+      '/v1/payments/orders/' + id,
+    )
     guard()
-    setOrder(row)
-    setPayment(p)
-    window.history.replaceState(null, '', '/checkout?order=' + row.id)
-    return row
+    if (current.status === 'PENDING_PAYMENT' && prepared?.checkoutStarted) {
+      current = readOrder(
+        await api.request<Order>('/v1/checkout/orders/' + id + '/reconcile', {
+          method: 'POST',
+          timeoutMs: 45000,
+        }),
+      )
+      guard()
+    }
+    setOrder(current)
+    setPayment(prepared)
+    return current
   }
   async function recover() {
     const result = await api.request<Recovery>('/v1/checkout/recovery')
     guard()
     setHold(result.reservation ? readReservation(result.reservation) : null)
-    const query = new URLSearchParams(window.location.search).get('order')
-    if (query && !canonicalId(query))
-      throw new Error('Invalid order identifier.')
-    const id =
-      query || (result.reservation?.status === 'ACTIVE' ? null : result.orderId)
-    if (id) await loadOrder(id)
-    return result
+    const query = new URLSearchParams(window.location.search)
+    const id = query.get('order') || result.orderId
+    if (id && !canonicalId(id)) throw new Error('Invalid order identifier.')
+    if (id) {
+      if (query.get('result') === 'cancel') {
+        await api.request('/v1/checkout/orders/' + id + '/cancel', {
+          method: 'POST',
+          timeoutMs: 45000,
+        })
+        guard()
+        window.history.replaceState(null, '', '/checkout?order=' + id)
+      }
+      await loadOrder(id)
+    }
   }
   useEffect(() => {
     mounted.current = true
     void (async () => {
       try {
-        const { items: rows } = await api.request<{ items: Address[] }>(
+        const result = await api.request<{ items: Address[] }>(
           '/v1/account/addresses',
         )
         guard()
-        setAddresses(rows)
-        setAddressId(rows.find((a) => a.isDefault)?.id || rows[0]?.id || '')
+        setAddresses(result.items)
+        setAddressId(
+          result.items.find((row) => row.isDefault)?.id ||
+            result.items[0]?.id ||
+            '',
+        )
         await recover()
-      } catch (e) {
+      } catch (failure) {
         if (mounted.current)
           setError(
-            e instanceof Error ? e.message : 'Could not restore checkout.',
+            failure instanceof Error
+              ? failure.message
+              : 'Could not restore checkout.',
           )
       } finally {
         if (mounted.current) setLoading(false)
       }
     })()
-    const clock = setInterval(() => setNow(Date.now()), 1000)
     return () => {
       mounted.current = false
-      clearInterval(clock)
     }
-    // The authenticated boundary remounts this component on owner/epoch changes.
+    // The authenticated boundary remounts this component when the account changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => {
+    if (!cartVersion) {
+      setOptions(null)
+      setDeliveryLoading(false)
+      return
+    }
+    if (loading || cartBlocked || order || activeHold || intent || !address)
+      return
+    const controller = new AbortController()
+    let active = true
+    setDeliveryLoading(true)
+    setOptions(null)
+    void api
+      .request<DeliveryOptions>('/v1/checkout/delivery-options', {
+        query: checkoutSelection(address.countryCode, '', appliedCoupon),
+        signal: controller.signal,
+      })
+      .then((result) => {
+        guard()
+        if (!active) return
+        setOptions(result)
+        setKind((previous) =>
+          result.options.some((option) => (option.kind || '') === previous)
+            ? previous
+            : result.options[0]?.kind || '',
+        )
+        setError('')
+      })
+      .catch((failure) => {
+        if (active && mounted.current)
+          setError(
+            failure instanceof Error
+              ? failure.message
+              : 'Delivery options could not be loaded.',
+          )
+      })
+      .finally(() => {
+        if (active) setDeliveryLoading(false)
+      })
+    return () => {
+      active = false
+      controller.abort()
+    }
+    // A saved cart/address/coupon change refreshes delivery charges without reading inventory.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    loading,
+    cartBlocked,
+    order?.id,
+    activeHold,
+    intent,
+    addressId,
+    appliedCoupon,
+    cartVersion,
+  ])
+  useEffect(() => {
     if (!intent) return
     const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ''
+      if (!redirecting.current) {
+        event.preventDefault()
+        event.returnValue = ''
+      }
     }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [intent])
-  async function run(work: () => Promise<void>) {
+  useEffect(() => {
+    if (
+      order?.status !== 'PENDING_PAYMENT' ||
+      !payment?.checkoutStarted ||
+      new URLSearchParams(window.location.search).get('result') !== 'success'
+    )
+      return
+    let attempts = 0
+    const timer = window.setInterval(() => {
+      if (++attempts >= 12) window.clearInterval(timer)
+      if (!writing.current)
+        void run(async () => {
+          await loadOrder(order.id)
+        })
+    }, 5000)
+    return () => window.clearInterval(timer)
+    // Payment success comes from server reconciliation after the Stripe return.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id, order?.status, payment?.checkoutStarted])
+
+  async function run(work: () => Promise<void>, lockCart = true) {
     if (writing.current) return
     writing.current = true
+    if (lockCart) shopping.setCheckoutBusy(true)
     setBusy(true)
     setError('')
     setNotice('')
     try {
-      await shoppingLock(async () => {
+      const guarded = async () => {
         guard()
         await work()
         guard()
-      })
-    } catch (e) {
-      if (mounted.current)
-        setError(
-          (e instanceof Error ? e.message : 'The request was not confirmed.') +
-            (e instanceof ApiRequestError && e.retryAfterSeconds
-              ? ` Retry after ${e.retryAfterSeconds} seconds.`
-              : ''),
+      }
+      if (lockCart) await shoppingLock(guarded)
+      else await guarded()
+    } catch (failure) {
+      if (!mounted.current) return
+      const stock =
+        failure instanceof ApiRequestError
+          ? stockShortages(failure.details)
+          : []
+      if (stock.length) {
+        setShortages(stock)
+        setIntent(null)
+      } else {
+        if (
+          failure instanceof ApiRequestError &&
+          [400, 401, 403, 404, 409, 422, 429].includes(failure.status)
         )
+          setIntent(null)
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : 'Checkout could not be confirmed.',
+        )
+      }
     } finally {
       writing.current = false
+      if (lockCart) shopping.setCheckoutBusy(false)
       if (mounted.current) setBusy(false)
     }
   }
-  function invalidate() {
-    setEstimate(null)
-    setOptions(null)
-  }
-  async function send(value: Intent) {
+  async function start(value: CheckoutIntent) {
+    const result = hostedCheckout(
+      await api.request('/v1/checkout/start', {
+        method: 'POST',
+        body: value,
+        timeoutMs: 45000,
+      }),
+    )
     guard()
-    if (value.kind === 'reserve') {
-      const row = readReservation(
-        await api.request<Reservation>('/v1/checkout/reservations', {
-          method: 'POST',
-          body: value.body,
-        }),
-      )
-      guard()
-      setHold(row)
-    } else {
-      const row = readOrder(
-        await api.request<Order>('/v1/orders', {
-          method: 'POST',
-          body: value.body,
-        }),
-      )
-      guard()
-      setOrder(row)
-      setPayment(null)
-      setHold(null)
-      window.history.replaceState(null, '', '/checkout?order=' + row.id)
-    }
-    setIntent(null)
-    shopping.reload()
+    redirecting.current = true
+    window.location.assign(result.url)
   }
-  const active = hold?.status === 'ACTIVE',
-    expired = Boolean(hold && Date.parse(hold.expiresAt) <= now)
+  async function resolveStock(line: StockShortage, remove: boolean) {
+    const confirmed = remove
+      ? await shopping.remove(line.itemId)
+      : await shopping.setQuantity({
+          productId: line.productId,
+          variantId: line.variantId,
+          quantity: line.availableQuantity,
+        })
+    guard()
+    if (confirmed)
+      setShortages((previous) =>
+        previous.filter((row) => row.itemId !== line.itemId),
+      )
+  }
   return (
     <section className="container-shell pb-20 pt-9">
       <nav
@@ -220,15 +315,15 @@ export function Checkout() {
         <ChevronRight size={14} />
         <span className="font-bold text-ink">Checkout</span>
       </nav>
-      <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
+      <h1 className="mb-7 text-3xl font-extrabold tracking-tight sm:text-4xl">
         Checkout
       </h1>
       <ol
         aria-label="Checkout progress"
-        className="mb-7 mt-7 grid grid-cols-3 gap-2"
+        className="mb-7 grid grid-cols-3 gap-2"
       >
-        {['Address', 'Delivery', 'Review'].map((label, index) => {
-          const current = order || hold ? 2 : options ? 1 : 0
+        {['Address', 'Delivery', 'Payment'].map((label, index) => {
+          const current = order || intent ? 2 : options ? 1 : 0
           return (
             <li
               key={label}
@@ -250,13 +345,6 @@ export function Checkout() {
       </ol>
       <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-6 rounded-[22px] border border-border bg-white p-5 sm:p-7">
-          <p className="text-sm text-muted">
-            TEST checkout. No live card details are collected. Orders use their
-            UUID.
-          </p>
-          <Link href="/cart" className="block w-fit font-bold text-primary">
-            Review your cart
-          </Link>
           <ErrorMessage text={error} />
           {notice && (
             <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm">
@@ -265,203 +353,193 @@ export function Checkout() {
           )}
           {loading ? (
             <p role="status">Restoring checkout…</p>
-          ) : (
-            <>
+          ) : order ? (
+            <section className="space-y-5">
+              <h2 className="break-all text-xl font-bold">Order {order.id}</h2>
+              <p role="status">
+                Order status: <strong>{order.status}</strong>
+              </p>
+              <p className="text-xl font-extrabold">
+                {money(order.totalMinor, order.currency)}
+              </p>
+              {order.status === 'PAID' ? (
+                <p className="font-bold text-green-800">
+                  Payment confirmed. Your order is placed.
+                </p>
+              ) : order.status === 'PENDING_PAYMENT' ? (
+                <>
+                  <p className="text-sm text-muted">
+                    Your items are reserved while payment is pending.
+                  </p>
+                  {payment && !payment.checkoutStarted ? (
+                    <p className="text-sm text-muted">
+                      This order uses an earlier payment preparation. Cancel it
+                      to start a new checkout.
+                    </p>
+                  ) : (
+                    <button
+                      className={actionClass}
+                      disabled={busy}
+                      onClick={() =>
+                        void run(async () => {
+                          const result = hostedCheckout(
+                            await api.request(
+                              '/v1/checkout/orders/' + order.id + '/session',
+                              { method: 'POST', timeoutMs: 45000 },
+                            ),
+                          )
+                          guard()
+                          redirecting.current = true
+                          window.location.assign(result.url)
+                        })
+                      }
+                    >
+                      Continue to Stripe Checkout
+                    </button>
+                  )}
+                  <button
+                    className="block text-sm font-bold text-red-700"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        const current = readOrder(
+                          await api.request<Order>(
+                            '/v1/checkout/orders/' + order.id + '/cancel',
+                            { method: 'POST', timeoutMs: 45000 },
+                          ),
+                        )
+                        guard()
+                        setOrder(current)
+                        shopping.reload()
+                      })
+                    }
+                  >
+                    Cancel checkout
+                  </button>
+                </>
+              ) : (
+                <button
+                  className={actionClass}
+                  disabled={busy}
+                  onClick={() => {
+                    setOrder(null)
+                    setPayment(null)
+                    setHold(null)
+                    setIntent(null)
+                    setShortages([])
+                    setOptions(null)
+                    window.history.replaceState(null, '', '/checkout')
+                    shopping.reload()
+                  }}
+                >
+                  Return to checkout
+                </button>
+              )}
               <button
-                className="block w-fit text-sm font-bold text-primary"
+                className="block text-sm font-bold text-primary"
                 disabled={busy}
                 onClick={() =>
                   void run(async () => {
-                    await recover()
+                    await loadOrder(order.id)
                     shopping.reload()
-                    setNotice('Current server checkout state refreshed.')
                   })
                 }
               >
-                Refresh checkout status
+                Refresh payment status
               </button>
-              {intent && (
-                <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-                  <p>
-                    The {intent.kind === 'reserve' ? 'reservation' : 'order'}{' '}
-                    request is unconfirmed. Retry the exact request; do not
-                    create another request.
+              <Link
+                href={'/account/orders/' + order.id}
+                className="block text-sm font-bold text-primary"
+              >
+                View order details
+              </Link>
+            </section>
+          ) : (
+            <>
+              <Link href="/cart" className="block w-fit font-bold text-primary">
+                Review your cart
+              </Link>
+              {cartBlocked && (
+                <p role="status" className="rounded-xl bg-amber-50 p-4 text-sm">
+                  Finish saving your cart and resolve any cart errors before
+                  continuing.
+                </p>
+              )}
+              {shortages.length > 0 && (
+                <section
+                  aria-label="Stock availability"
+                  className="space-y-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"
+                >
+                  <h2 className="font-extrabold">
+                    Some quantities need updating
+                  </h2>
+                  {shortages.map((line) => (
+                    <article key={line.itemId} className="space-y-3">
+                      <h3 className="font-bold">
+                        {line.title}
+                        {line.sku ? ' · ' + line.sku : ''}
+                      </h3>
+                      <p className="text-sm">
+                        You requested {line.requestedQuantity}. Only{' '}
+                        {line.availableQuantity} are currently available. Reduce
+                        the quantity or remove this item to continue.
+                      </p>
+                      <div className="flex flex-wrap gap-3">
+                        {line.availableQuantity > 0 && (
+                          <button
+                            className={actionClass}
+                            disabled={busy || cartBlocked}
+                            onClick={() =>
+                              void run(() => resolveStock(line, false), false)
+                            }
+                          >
+                            Update quantity to {line.availableQuantity}
+                          </button>
+                        )}
+                        <button
+                          className="min-h-11 text-sm font-bold text-red-700"
+                          disabled={busy || cartBlocked}
+                          onClick={() =>
+                            void run(() => resolveStock(line, true), false)
+                          }
+                        >
+                          Remove item
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </section>
+              )}
+              {activeHold ? (
+                <div className="space-y-3 rounded-xl bg-blue-50 p-4">
+                  <p className="text-sm">
+                    A previous checkout is holding stock. Release it to
+                    continue.
                   </p>
                   <button
                     className={actionClass}
                     disabled={busy}
-                    onClick={() => void run(() => send(intent))}
-                  >
-                    Retry same request
-                  </button>
-                  <p className="text-xs">
-                    After a reload, Refresh checkout status discovers the server
-                    hold or unpaid order. No delivery address is stored in
-                    browser storage.
-                  </p>
-                </div>
-              )}
-              {order ? (
-                <section className="space-y-5 rounded-2xl border border-slate-200 p-5">
-                  <h2 className="text-xl font-black">Order {order.id}</h2>
-                  <Link
-                    href={'/account/orders/' + order.id}
-                    className="block w-fit text-sm font-bold text-primary"
-                  >
-                    Open order details and tracking
-                  </Link>
-                  <p role="status">
-                    Order status: <strong>{order.status}</strong>
-                  </p>
-                  <TotalsView data={order} total={order.totalMinor} />
-                  {order.lines.map((line) => (
-                    <p key={line.id} className="text-sm">
-                      {line.title} · {line.sku || 'No SKU'} · {line.quantity}{' '}
-                      units · {money(line.netLineTotalMinor, order.currency)}
-                    </p>
-                  ))}
-                  <p className="text-sm">
-                    Payment deadline: {order.paymentDeadlineAt}
-                  </p>
-                  {order.status === 'PAID' ? (
-                    <p className="font-bold text-green-800">
-                      Payment confirmed by the server.
-                    </p>
-                  ) : (
-                    <>
-                      <p className="text-sm">
-                        Payment preparation:{' '}
-                        {payment?.preparationStatus || 'Not prepared'}. Payment
-                        completion requests still require signed webhook
-                        settlement.
-                      </p>
-                      {order.status === 'PENDING_PAYMENT' &&
-                        Date.parse(order.paymentDeadlineAt) > now && (
-                          <div className="flex flex-wrap gap-3">
-                            <button
-                              className={actionClass}
-                              disabled={
-                                busy ||
-                                Boolean(intent) ||
-                                Boolean(
-                                  payment &&
-                                    !['CREATING', 'READY'].includes(
-                                      payment.preparationStatus,
-                                    ),
-                                )
-                              }
-                              onClick={() =>
-                                void run(async () => {
-                                  await loadOrder(order.id)
-                                  const p = await api.request<Payment>(
-                                    '/v1/payments/orders/' +
-                                      order.id +
-                                      '/prepare',
-                                    { method: 'POST' },
-                                  )
-                                  guard()
-                                  setPayment(p)
-                                  setNotice(
-                                    'TEST preparation returned. This does not confirm payment.',
-                                  )
-                                })
-                              }
-                            >
-                              Prepare TEST payment
-                            </button>
-                            <button
-                              className={actionClass}
-                              disabled={
-                                busy || !paymentEligible(order, payment, now)
-                              }
-                              onClick={() => {
-                                if (
-                                  window.confirm(
-                                    'Run the explicitly enabled TEST card simulation? No real card details are accepted.',
-                                  )
-                                )
-                                  void run(async () => {
-                                    const fresh = await loadOrder(order.id)
-                                    if (fresh.status !== 'PENDING_PAYMENT')
-                                      return
-                                    await api.request(
-                                      '/v1/payments/orders/' +
-                                        order.id +
-                                        '/test-complete',
-                                      { method: 'POST' },
-                                    )
-                                    guard()
-                                    setNotice(
-                                      'TEST completion requested. Refresh status to check server settlement.',
-                                    )
-                                    await loadOrder(order.id)
-                                  })
-                              }}
-                            >
-                              Simulate TEST payment
-                            </button>
-                          </div>
-                        )}
-                      {order.status === 'PENDING_PAYMENT' && (
-                        <button
-                          className="text-sm font-bold text-red-700"
-                          disabled={busy}
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                'Cancel this unpaid order? Payment cancellation may require server reconciliation.',
-                              )
-                            )
-                              void run(async () => {
-                                const row = readOrder(
-                                  await api.request<Order>(
-                                    '/v1/orders/' + order.id + '/cancel',
-                                    {
-                                      method: 'POST',
-                                    },
-                                  ),
-                                )
-                                guard()
-                                setOrder(row)
-                                shopping.reload()
-                              })
-                          }}
-                        >
-                          Cancel unpaid order
-                        </button>
-                      )}
-                    </>
-                  )}
-                  {order.status !== 'PENDING_PAYMENT' && (
-                    <button
-                      className={actionClass}
-                      disabled={busy}
-                      onClick={() => {
-                        setOrder(null)
-                        setPayment(null)
-                        setHold(null)
-                        setEstimate(null)
-                        setOptions(null)
+                    onClick={() =>
+                      void run(async () => {
+                        const released = readReservation(
+                          await api.request<Reservation>(
+                            '/v1/checkout/reservations/' + hold.id,
+                            { method: 'DELETE' },
+                          ),
+                        )
+                        guard()
                         setIntent(null)
-                        window.history.replaceState(null, '', '/checkout')
+                        setHold(null)
+                        if (released.status === 'CONSUMED') await recover()
                         shopping.reload()
-                      }}
-                    >
-                      Start a new checkout
-                    </button>
-                  )}
-                </section>
+                      })
+                    }
+                  >
+                    Release previous stock hold
+                  </button>
+                </div>
               ) : (
                 <>
-                  {cartBlocked && (
-                    <p
-                      role="status"
-                      className="rounded-xl bg-amber-50 p-4 text-sm"
-                    >
-                      Resolve guest items, unconfirmed changes or cart errors in
-                      your cart before starting checkout.
-                    </p>
-                  )}
                   {!addresses.length && (
                     <Link href="/account/addresses" className={actionClass}>
                       Add a saved delivery address
@@ -473,18 +551,17 @@ export function Checkout() {
                       aria-label="Delivery address"
                       className={inputClass}
                       value={addressId}
-                      disabled={busy || active || Boolean(intent)}
-                      onChange={(e) => {
-                        setAddressId(e.target.value)
-                        setKind('')
-                        invalidate()
+                      disabled={busy || Boolean(intent)}
+                      onChange={(event) => {
+                        setAddressId(event.target.value)
+                        setOptions(null)
                       }}
                     >
                       <option value="">Select your address</option>
-                      {addresses.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.label}: {a.recipientName}, {a.addressLine1},{' '}
-                          {a.city}, {a.countryCode}
+                      {addresses.map((row) => (
+                        <option key={row.id} value={row.id}>
+                          {row.label}: {row.recipientName}, {row.addressLine1},{' '}
+                          {row.city}, {row.countryCode}
                         </option>
                       ))}
                     </select>
@@ -495,51 +572,37 @@ export function Checkout() {
                   >
                     Manage saved addresses
                   </Link>
-                  <label className="block text-sm font-bold">
-                    Coupon code (optional)
-                    <input
-                      className={inputClass}
-                      maxLength={24}
-                      value={coupon}
-                      disabled={busy || active || Boolean(intent)}
-                      onChange={(e) => {
-                        setCoupon(e.target.value)
-                        invalidate()
-                      }}
-                    />
-                  </label>
-                  {!active && !intent && (
+                  <div className="flex flex-wrap items-end gap-3">
+                    <label className="min-w-0 flex-1 text-sm font-bold">
+                      Coupon code (optional)
+                      <input
+                        className={inputClass}
+                        maxLength={24}
+                        value={coupon}
+                        disabled={busy || Boolean(intent)}
+                        onChange={(event) => setCoupon(event.target.value)}
+                      />
+                    </label>
                     <button
                       className={actionClass}
                       disabled={
                         busy ||
-                        cartBlocked ||
-                        !address ||
-                        !shopping.cart?.checkoutReady
+                        Boolean(intent) ||
+                        appliedCoupon === coupon.trim().toUpperCase()
                       }
                       onClick={() =>
-                        void run(async () => {
-                          if (!address) return
-                          invalidate()
-                          const selection = checkoutSelection(
-                            address.countryCode,
-                            '',
-                            coupon,
-                          )
-                          const result = await api.request<DeliveryOptions>(
-                            '/v1/checkout/delivery-options',
-                            { query: selection },
-                          )
-                          guard()
-                          setOptions(result)
-                          setKind(result.options[0]?.kind || '')
-                        })
+                        setAppliedCoupon(coupon.trim().toUpperCase())
                       }
                     >
-                      Load delivery options
+                      Apply
                     </button>
+                  </div>
+                  {deliveryLoading && (
+                    <p role="status" className="text-sm">
+                      Calculating delivery…
+                    </p>
                   )}
-                  {options && !active && (
+                  {options && (
                     <label className="block text-sm font-bold">
                       Delivery service
                       <select
@@ -547,224 +610,139 @@ export function Checkout() {
                         className={inputClass}
                         value={kind}
                         disabled={busy || Boolean(intent)}
-                        onChange={(e) => {
-                          setKind(e.target.value)
-                          setEstimate(null)
-                        }}
+                        onChange={(event) => setKind(event.target.value)}
                       >
-                        {options.options.map((o) => (
-                          <option key={o.kind || 'flat'} value={o.kind || ''}>
-                            {o.label} ·{' '}
-                            {money(o.shippingMinor, options.currency)} ·{' '}
-                            {o.etaNote}
+                        {options.options.map((option) => (
+                          <option
+                            key={option.kind || 'flat'}
+                            value={option.kind || ''}
+                          >
+                            {option.label} ·{' '}
+                            {money(option.shippingMinor, options.currency)} ·{' '}
+                            {option.etaNote}
                           </option>
                         ))}
                       </select>
                     </label>
                   )}
-                  {options && !active && !intent && (
-                    <button
-                      className={actionClass}
-                      disabled={busy || cartBlocked || !address}
-                      onClick={() =>
-                        void run(async () => {
-                          if (!address) return
-                          setEstimate(null)
-                          const result = await api.request<Estimate>(
-                            '/v1/checkout/estimate',
-                            {
-                              method: 'POST',
-                              body: checkoutSelection(
-                                address.countryCode,
-                                kind,
-                                coupon,
-                              ),
-                            },
-                          )
-                          guard()
-                          readTotals(result, result.estimatedTotalMinor)
-                          setEstimate(result)
-                        })
-                      }
-                    >
-                      Calculate current estimate
-                    </button>
-                  )}
-                  {estimate && !active && (
-                    <div className="space-y-4">
-                      <TotalsView
-                        data={estimate}
-                        total={estimate.estimatedTotalMinor}
-                      />
+                  {intent ? (
+                    <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
                       <p className="text-sm">
-                        Estimate only · {estimate.quotedAt} ·{' '}
-                        {estimate.deliveryEtaNote}. Stock is not held yet.
+                        Your checkout could not be confirmed. Retry the same
+                        checkout to continue.
                       </p>
                       <button
                         className={actionClass}
-                        disabled={
-                          busy || cartBlocked || Boolean(intent) || !address
-                        }
-                        onClick={() =>
-                          void run(async () => {
-                            if (!address) return
-                            const value: Intent = {
-                              kind: 'reserve',
-                              body: {
-                                ...checkoutSelection(
-                                  address.countryCode,
-                                  kind,
-                                  coupon,
-                                ),
-                                requestId: crypto.randomUUID(),
-                              },
-                            }
-                            setIntent(value)
-                            await send(value)
-                          })
-                        }
+                        disabled={busy || cartBlocked}
+                        onClick={() => void run(() => start(intent))}
                       >
-                        Reserve current stock for 10 minutes
+                        Retry checkout
                       </button>
                     </div>
+                  ) : (
+                    <button
+                      className={actionClass + ' w-full'}
+                      disabled={
+                        busy ||
+                        cartBlocked ||
+                        deliveryLoading ||
+                        !address ||
+                        !selectedDelivery ||
+                        shortages.length > 0 ||
+                        !shopping.cart?.items.length
+                      }
+                      onClick={() =>
+                        void run(async () => {
+                          if (!address) return
+                          const value = {
+                            ...checkoutSelection(
+                              address.countryCode,
+                              kind,
+                              appliedCoupon,
+                            ),
+                            requestId: crypto.randomUUID(),
+                            shippingAddress: shippingSnapshot(address),
+                          }
+                          setIntent(value)
+                          setShortages([])
+                          await start(value)
+                        })
+                      }
+                    >
+                      <LockKeyhole size={16} className="mr-2" />
+                      {busy
+                        ? 'Preparing checkout…'
+                        : 'Continue to Stripe Checkout'}
+                    </button>
                   )}
-                  {hold && (
-                    <div className="space-y-4 rounded-2xl border border-slate-200 p-5">
-                      <h2 className="text-xl font-black">
-                        Stock hold: {hold.status}
-                      </h2>
-                      <p className="text-sm">
-                        {hold.id} · expires {hold.expiresAt}
-                        {expired
-                          ? ' · Refresh status: hold deadline passed'
-                          : ''}
-                      </p>
-                      <TotalsView
-                        data={hold}
-                        total={hold.estimatedTotalMinor}
-                      />
-                      <p className="text-sm">
-                        Review the reserved totals. They can differ from the
-                        earlier estimate.
-                      </p>
-                      {active && (
-                        <>
-                          <button
-                            className={actionClass}
-                            disabled={
-                              busy ||
-                              expired ||
-                              Boolean(intent) ||
-                              cartBlocked ||
-                              !address ||
-                              address.countryCode !== hold.countryCode
-                            }
-                            onClick={() =>
-                              void run(async () => {
-                                if (!address) return
-                                const fresh = readReservation(
-                                  await api.request<Reservation>(
-                                    '/v1/checkout/reservations/' + hold.id,
-                                  ),
-                                )
-                                guard()
-                                setHold(fresh)
-                                if (
-                                  fresh.status !== 'ACTIVE' ||
-                                  Date.parse(fresh.expiresAt) <= Date.now()
-                                )
-                                  throw new Error(
-                                    'Stock hold has expired. Release/refresh and start again.',
-                                  )
-                                const value: Intent = {
-                                  kind: 'order',
-                                  body: {
-                                    requestId: crypto.randomUUID(),
-                                    reservationId: hold.id,
-                                    shippingAddress: shippingSnapshot(address),
-                                  },
-                                }
-                                setIntent(value)
-                                await send(value)
-                              })
-                            }
-                          >
-                            Create unpaid order
-                          </button>
-                          <button
-                            className="ml-4 text-sm font-bold text-red-700"
-                            disabled={busy || Boolean(intent)}
-                            onClick={() =>
-                              void run(async () => {
-                                const row = readReservation(
-                                  await api.request<Reservation>(
-                                    '/v1/checkout/reservations/' + hold.id,
-                                    { method: 'DELETE' },
-                                  ),
-                                )
-                                guard()
-                                setHold(row)
-                                setEstimate(null)
-                                shopping.reload()
-                              })
-                            }
-                          >
-                            Release stock hold
-                          </button>
-                          {address?.countryCode !== hold.countryCode && (
-                            <p className="text-sm text-amber-800">
-                              Choose a saved address in {hold.countryCode}, or
-                              release the hold to change destination.
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
+                  <p className="text-xs text-muted">
+                    Stock and final prices are confirmed before payment. Your
+                    items are reserved while you complete Stripe Checkout.
+                  </p>
+                </>
+              )}
+              <button
+                className="block text-sm font-bold text-primary"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    await recover()
+                    shopping.reload()
+                    setNotice('Checkout status refreshed.')
+                  })
+                }
+              >
+                Refresh checkout status
+              </button>
+            </>
+          )}
+        </div>
+        <aside className="space-y-4 rounded-[22px] border border-border bg-[#fbfcff] p-6">
+          <h2 className="text-xl font-extrabold">Order summary</h2>
+          {order ? (
+            <p className="text-xl font-extrabold">
+              {money(order.totalMinor, order.currency)}
+            </p>
+          ) : (
+            <>
+              <div className="flex justify-between gap-4 text-sm">
+                <span>Items</span>
+                <strong>
+                  {shopping.cart?.currency
+                    ? money(shopping.cart.subtotalMinor, shopping.cart.currency)
+                    : '—'}
+                </strong>
+              </div>
+              {options && selectedDelivery && (
+                <>
+                  <div className="flex justify-between gap-4 text-sm">
+                    <span>Discount</span>
+                    <strong>
+                      {money(options.discountMinor, options.currency)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between gap-4 text-sm">
+                    <span>Shipping</span>
+                    <strong>
+                      {money(selectedDelivery.shippingMinor, options.currency)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between gap-4 text-sm">
+                    <span>Tax</span>
+                    <strong>
+                      {money(selectedDelivery.taxMinor, options.currency)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between gap-4 border-t border-border pt-4 font-extrabold">
+                    <span>Estimated total</span>
+                    <span>
+                      {money(selectedDelivery.totalMinor, options.currency)}
+                    </span>
+                  </div>
                 </>
               )}
             </>
           )}
-        </div>
-        <aside className="space-y-5 rounded-[22px] border border-border bg-[#fbfcff] p-6 lg:sticky lg:top-44">
-          <h2 className="text-lg font-extrabold">Order summary</h2>
-          {order ? (
-            <TotalsView data={order} total={order.totalMinor} />
-          ) : hold ? (
-            <TotalsView data={hold} total={hold.estimatedTotalMinor} />
-          ) : estimate ? (
-            <TotalsView data={estimate} total={estimate.estimatedTotalMinor} />
-          ) : (
-            <>
-              <div className="flex justify-between gap-3 text-sm">
-                <span>Items subtotal</span>
-                <strong>
-                  {shopping.cart?.currency
-                    ? money(shopping.cart.subtotalMinor, shopping.cart.currency)
-                    : 'Not available yet'}
-                </strong>
-              </div>
-              <p className="text-xs leading-6 text-muted">
-                Delivery and taxes are calculated after selecting your address
-                and delivery service.
-              </p>
-            </>
-          )}
-          <div className="border-t border-border pt-4 text-xs leading-6 text-muted">
-            <p className="flex items-center gap-2 font-bold text-ink">
-              <PackageCheck size={17} />
-              Review before placing your order
-            </p>
-            <p className="mt-2">
-              {hold
-                ? 'Your stock hold and its expiry are shown in checkout.'
-                : 'Adding items to your cart does not reserve stock.'}
-            </p>
-            <p className="mt-3 flex items-center gap-2">
-              <LockKeyhole size={16} />
-              TEST payments only
-            </p>
-          </div>
         </aside>
       </div>
     </section>

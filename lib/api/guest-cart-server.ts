@@ -49,6 +49,7 @@ function quote(value: unknown) {
     amountDueMinor: q.amountDueMinor,
     checkoutReady: q.checkoutReady,
     issues: q.issues,
+    stockChecked: q.stockChecked,
     quotedAt: q.quotedAt,
   }
 }
@@ -175,24 +176,32 @@ export function createGuestCartHandler(config: Config) {
       ) {
         let result: Response
         try {
-          result = await send(config.apiOrigin() + route, {
-            method,
-            headers: {
-              Accept: 'application/json',
-              ...(data === undefined
-                ? {}
-                : { 'Content-Type': 'application/json' }),
-              ...(access
-                ? { Authorization: 'Bearer ' + access }
-                : token
-                  ? { 'X-Guest-Cart-Token': token }
-                  : {}),
+          result = await send(
+            config.apiOrigin() +
+              route +
+              (/^\/v1\/(cart|guest-cart)(\/|$)/.test(route) &&
+              !(route === '/v1/guest-cart' && method !== 'GET')
+                ? '?view=draft'
+                : ''),
+            {
+              method,
+              headers: {
+                Accept: 'application/json',
+                ...(data === undefined
+                  ? {}
+                  : { 'Content-Type': 'application/json' }),
+                ...(access
+                  ? { Authorization: 'Bearer ' + access }
+                  : token
+                    ? { 'X-Guest-Cart-Token': token }
+                    : {}),
+              },
+              ...(data === undefined ? {} : { body: JSON.stringify(data) }),
+              cache: 'no-store',
+              redirect: 'error',
+              signal: AbortSignal.timeout(12000),
             },
-            ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-            cache: 'no-store',
-            redirect: 'error',
-            signal: AbortSignal.timeout(12000),
-          })
+          )
         } catch {
           throw new CartError(
             503,

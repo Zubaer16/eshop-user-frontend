@@ -31,19 +31,23 @@ export type RequestOptions = {
   signal?: AbortSignal
   auth?: boolean
   refreshOn401?: boolean
+  timeoutMs?: number
 }
 export class ApiRequestError extends Error {
   status: number
   retryAfterSeconds: number | null
+  details: unknown
   constructor(
     status: number,
     message: string,
     retryAfterSeconds: number | null = null,
+    details: unknown = null,
   ) {
     super(message)
     this.name = 'ApiRequestError'
     this.status = status
     this.retryAfterSeconds = retryAfterSeconds
+    this.details = details
   }
 }
 export function apiOrigin(
@@ -215,10 +219,13 @@ export function createApiClient(config: {
     const abort = () => controller.abort()
     options.signal?.addEventListener('abort', abort, { once: true })
     let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      controller.abort()
-    }, config.timeoutMs || 15000)
+    const timer = setTimeout(
+      () => {
+        timedOut = true
+        controller.abort()
+      },
+      options.timeoutMs || config.timeoutMs || 15000,
+    )
     if (track) pending.add(controller)
     try {
       const response = await send(url.toString(), {
@@ -239,6 +246,7 @@ export function createApiClient(config: {
         redirect: 'error',
       })
       if (!response.ok) {
+        let details: unknown = null
         let message =
           response.status >= 500
             ? 'The service is temporarily unavailable. Please try again.'
@@ -249,6 +257,7 @@ export function createApiClient(config: {
                 : 'The request could not be completed.'
         if ([400, 409, 422].includes(response.status)) {
           const body = await response.json().catch(() => null)
+          details = body
           const messages = Array.isArray(body?.message)
             ? body.message
             : [body?.message]
@@ -263,7 +272,7 @@ export function createApiClient(config: {
           retry && /^\d+$/.test(retry) ? Math.min(Number(retry), 3600) : null
         if (response.status === 429)
           message = 'Too many attempts. Please wait before trying again.'
-        throw new ApiRequestError(response.status, message, seconds)
+        throw new ApiRequestError(response.status, message, seconds, details)
       }
       if (response.status === 204) return undefined as T
       try {

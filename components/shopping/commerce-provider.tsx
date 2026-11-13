@@ -52,6 +52,7 @@ type Commerce = State & {
   reload: () => void
   add: (selection: CartSelection, preview: AddPreview) => Promise<boolean>
   optimisticAdds: OptimisticAddition[]
+  setCheckoutBusy: (busy: boolean) => void
   quantitySaving: boolean
   canAdd: boolean
   setQuantity: (selection: CartSelection) => Promise<boolean>
@@ -100,6 +101,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     [revision, setRevision] = useState(0),
     [cartOpen, setCartOpen] = useState(false),
     [busyOwner, setBusyOwner] = useState(''),
+    [checkoutBusyOwner, setCheckoutBusyOwner] = useState(''),
     [pending, setPending] = useState<Pending | null>(null)
   const pendingRef = useRef<Pending | null>(null),
     writing = useRef('')
@@ -164,7 +166,9 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
       const version = ++generation.current
       const guestRead = readGuest(ticket)
       const results = await Promise.allSettled([
-        authenticated ? api.request('/v1/cart').then(readCart) : guestRead,
+        authenticated
+          ? api.request('/v1/cart', { query: { view: 'draft' } }).then(readCart)
+          : guestRead,
         authenticated
           ? api.request('/v1/wishlist').then(readWishlist)
           : Promise.resolve(null),
@@ -233,6 +237,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     pendingRef.current = null
     setPending(null)
     setCartOpen(false)
+    setCheckoutBusyOwner('')
     window.clearTimeout(addTimer.current)
     addTimer.current = undefined
     addQueue.current = []
@@ -265,7 +270,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   async function quoteFor(ticket: string, guest: boolean) {
     return guest
       ? await readGuest(ticket)
-      : readCart(await api.request('/v1/cart'))
+      : readCart(await api.request('/v1/cart', { query: { view: 'draft' } }))
   }
   async function execute(change: Pending) {
     guard(change.owner)
@@ -293,6 +298,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
               ? '/v1/cart/items/' + change.id
               : '/v1/cart',
         {
+          query: { view: 'draft' },
           method:
             change.action === 'add'
               ? 'POST'
@@ -318,6 +324,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   ) {
     const ticket = owner
     if (
+      checkoutBusyOwner === ticket ||
       writing.current === ticket ||
       (action !== 'set' &&
         (activeQuantity.current || quantityQueue.current.length > 0)) ||
@@ -455,6 +462,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   async function add(selection: CartSelection, preview: AddPreview) {
     guard(owner)
     if (
+      checkoutBusyOwner === owner ||
       view.loading ||
       (writing.current && !activeAdd.current) ||
       quantityQueue.current.length > 0 ||
@@ -556,6 +564,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   async function queueQuantity(selection: CartSelection, guest = false) {
     guard(owner)
     if (
+      checkoutBusyOwner === owner ||
       view.loading ||
       activeAdd.current ||
       addQueue.current.length ||
@@ -625,7 +634,9 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         const quote = authenticated
           ? result.cart
             ? readCart(result.cart)
-            : readCart(await api.request('/v1/cart'))
+            : readCart(
+                await api.request('/v1/cart', { query: { view: 'draft' } }),
+              )
           : null
         guard(ticket)
         update(ticket, {
@@ -715,13 +726,21 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         authenticated,
         cartOpen,
         setCartOpen,
+        setCheckoutBusy: (busy) => {
+          if (busy && keyOf(api.getSnapshot()) !== owner) return
+          setCheckoutBusyOwner((previous) =>
+            busy ? owner : previous === owner ? '' : previous,
+          )
+        },
         busy:
+          checkoutBusyOwner === owner ||
           busyOwner === owner ||
           (optimisticAdds.some((row) => row.owner === owner) && !pending) ||
           (quantityDrafts.some((row) => row.owner === owner) && !pending),
         optimisticAdds: optimisticAdds.filter((row) => row.owner === owner),
         canAdd:
           ready &&
+          checkoutBusyOwner !== owner &&
           !view.loading &&
           !quantityDrafts.some((row) => row.owner === owner) &&
           (!writing.current || Boolean(activeAdd.current)) &&

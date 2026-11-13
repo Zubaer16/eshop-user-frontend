@@ -323,11 +323,11 @@ for (const authenticated of [false, true])
     await page.route('**/v1/products/a5-hardcover-notebook', (route) =>
       route.fulfill({ json: real }),
     )
-    await page.route('**/v1/cart', (route) => {
+    await page.route('**/v1/cart?**', (route) => {
       if (adding) reads++
       return route.fulfill({ json: emptyCart })
     })
-    await page.route('**/v1/cart/items/add', async (route) => {
+    await page.route('**/v1/cart/items/add?**', async (route) => {
       writes.push(route.request().postDataJSON())
       await gate
       await route.fulfill({ json: confirmed })
@@ -1007,8 +1007,10 @@ test('rapid additions batch behind the in-flight add and a closed drawer stays c
     release = resolve
   })
   const writes = []
-  await page.route('**/v1/cart', (route) => route.fulfill({ json: emptyCart }))
-  await page.route('**/v1/cart/items/add', async (route) => {
+  await page.route('**/v1/cart?**', (route) =>
+    route.fulfill({ json: emptyCart }),
+  )
+  await page.route('**/v1/cart/items/add?**', async (route) => {
     const body = route.request().postDataJSON()
     writes.push(body)
     if (writes.length === 1) await gate
@@ -1062,10 +1064,10 @@ test('uncertain Add pauses and explicit retry reuses the request ID without doub
   await mock(page, { authenticated: true })
   const writes = []
   let applied = false
-  await page.route('**/v1/cart', (route) =>
+  await page.route('**/v1/cart?**', (route) =>
     route.fulfill({ json: applied ? confirmedCart(1) : emptyCart }),
   )
-  await page.route('**/v1/cart/items/add', (route) => {
+  await page.route('**/v1/cart/items/add?**', (route) => {
     writes.push(route.request().postDataJSON())
     applied = true
     return route.fulfill(
@@ -1123,8 +1125,10 @@ test('account switch removes optimistic data and cancels unsent additions', asyn
   const gate = new Promise((resolve) => {
     release = resolve
   })
-  await page.route('**/v1/cart', (route) => route.fulfill({ json: emptyCart }))
-  await page.route('**/v1/cart/items/add', async (route) => {
+  await page.route('**/v1/cart?**', (route) =>
+    route.fulfill({ json: emptyCart }),
+  )
+  await page.route('**/v1/cart/items/add?**', async (route) => {
     writes++
     await gate
     await route.fulfill({ json: confirmedCart(1) }).catch(() => {})
@@ -1173,7 +1177,8 @@ test('account switch removes optimistic data and cancels unsent additions', asyn
 for (const authenticated of [false, true])
   test(`${authenticated ? 'account' : 'guest'} quantity autosaves, shows totals immediately and keeps latest edits during a slow write`, async ({
     page,
-  }) => {
+  }, info) => {
+    if (!authenticated) await page.setViewportSize({ width: 390, height: 844 })
     await mock(page, { authenticated })
     let release
     const gate = new Promise((resolve) => {
@@ -1185,7 +1190,7 @@ for (const authenticated of [false, true])
       if (writes.length === 1) await gate
       return confirmedCart(body.quantity)
     }
-    await page.route('**/v1/cart/items', async (route) => {
+    await page.route('**/v1/cart/items?**', async (route) => {
       await route.fulfill({
         json: await respond(route, route.request().postDataJSON()),
       })
@@ -1208,7 +1213,17 @@ for (const authenticated of [false, true])
       await expect(
         page.getByRole('button', { name: 'Update quantity', exact: true }),
       ).toHaveCount(0)
-      await input.fill('2')
+      const decrease = page.getByRole('button', {
+        name: 'Decrease quantity for ' + products[0].sku,
+        exact: true,
+      })
+      const increase = page.getByRole('button', {
+        name: 'Increase quantity for ' + products[0].sku,
+        exact: true,
+      })
+      await expect(decrease).toBeDisabled()
+      await increase.click()
+      await expect(input).toHaveValue('2')
       await expect(
         page.getByRole('button', { name: 'Open cart, 2 items', exact: true }),
       ).toHaveCount(1)
@@ -1218,7 +1233,11 @@ for (const authenticated of [false, true])
       )
       await expect.poll(() => writes.length).toBe(1)
       await expect(input).toBeEnabled()
-      await input.fill('5')
+      await input.fill('99')
+      await expect(increase).toBeDisabled()
+      await input.fill('6')
+      await decrease.click()
+      await expect(input).toHaveValue('5')
       await expect(summary).toContainText(
         '$' + ((products[0].priceMinor * 5) / 100).toFixed(2),
       )
@@ -1230,6 +1249,12 @@ for (const authenticated of [false, true])
         page.getByRole('button', { name: 'Refresh cart', exact: true }),
       ).toBeEnabled()
       expect(writes.map((body) => body.quantity)).toEqual([2, 5])
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+      await page.screenshot({ path: info.outputPath('quantity-controls.png') })
     } finally {
       release()
       await page.unrouteAll({ behavior: 'wait' })
@@ -1240,7 +1265,7 @@ test('failed quantity save restores the confirmed total and leaves the input usa
   page,
 }) => {
   await mock(page, { authenticated: true })
-  await page.route('**/v1/cart/items', (route) =>
+  await page.route('**/v1/cart/items?**', (route) =>
     route.fulfill({ status: 409, json: { message: 'Cart edit rejected' } }),
   )
   await page.goto('/cart')
@@ -1265,7 +1290,7 @@ test('uncertain quantity saves pause later edits and retry the frozen quantity b
     release = resolve
   })
   const writes = []
-  await page.route('**/v1/cart/items', async (route) => {
+  await page.route('**/v1/cart/items?**', async (route) => {
     const body = route.request().postDataJSON()
     writes.push(body)
     if (writes.length === 1) {
@@ -1300,6 +1325,328 @@ test('uncertain quantity saves pause later edits and retry the frozen quantity b
     await expect(input).toHaveValue('5')
     await expect(input).toBeEnabled()
     await expect(retry).toHaveCount(0)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+async function checkoutScenario(page, initialQuantity = 12) {
+  await mock(page, { authenticated: true })
+  let quantity = initialQuantity
+  const saved = []
+  const draft = () => ({
+    ...confirmedCart(quantity),
+    stockChecked: false,
+    items: quantity
+      ? [{ ...confirmedCart(quantity).items[0], availableQuantity: null }]
+      : [],
+    checkoutReady: quantity > 0,
+  })
+  await page.route('**/v1/cart?**', (route) => route.fulfill({ json: draft() }))
+  await page.route('**/v1/cart/items?**', (route) => {
+    quantity = route.request().postDataJSON().quantity
+    saved.push(quantity)
+    return route.fulfill({ json: draft() })
+  })
+  await page.route('**/v1/cart/items/*?**', (route) => {
+    quantity = 0
+    return route.fulfill({ json: draft() })
+  })
+  await page.route('**/v1/account/addresses', (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: id(70),
+            label: 'Home',
+            recipientName: 'Customer',
+            phone: '+12025550123',
+            addressLine1: '1 Checkout Street',
+            addressLine2: '',
+            city: 'Example',
+            region: '',
+            postalCode: '',
+            countryCode: 'US',
+            isDefault: true,
+          },
+        ],
+      },
+    }),
+  )
+  await page.route('**/v1/checkout/delivery-options?**', (route) =>
+    route.fulfill({
+      json: {
+        countryCode: 'US',
+        currency: 'USD',
+        subtotalMinor: quantity * products[0].priceMinor,
+        discountMinor: 0,
+        options: [
+          {
+            kind: null,
+            label: 'Standard',
+            shippingMinor: 0,
+            taxMinor: 0,
+            totalMinor: quantity * products[0].priceMinor,
+            etaNote: '3 days',
+          },
+        ],
+      },
+    }),
+  )
+  await page.route('https://checkout.stripe.com/**', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<main>Stripe Checkout opened</main>',
+    }),
+  )
+  return {
+    saved,
+    quantity: () => quantity,
+    shortage: (available) => ({
+      code: 'INSUFFICIENT_STOCK',
+      message: 'Stock changed',
+      items: [
+        {
+          itemId: cart.items[0].id,
+          productId: products[0].id,
+          variantId: null,
+          title: products[0].title,
+          sku: products[0].sku,
+          requestedQuantity: quantity,
+          availableQuantity: available,
+        },
+      ],
+    }),
+    session: () => ({
+      orderId: id(80),
+      sessionId: 'cs_test_Checkout12345678',
+      url: 'https://checkout.stripe.com/c/pay/test_checkout',
+      expiresAt: new Date(Date.now() + 31 * 60000).toISOString(),
+    }),
+  }
+}
+
+test('checkout reports 12 requested versus 10 available, saves the suggested quantity and then opens Stripe', async ({
+  page,
+}, info) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const scenario = await checkoutScenario(page)
+  const starts = []
+  await page.route('**/v1/checkout/start', (route) => {
+    starts.push(route.request().postDataJSON())
+    return route.fulfill(
+      scenario.quantity() > 10
+        ? { status: 409, json: scenario.shortage(10) }
+        : { json: scenario.session() },
+    )
+  })
+  await page.goto('/checkout')
+  const pay = page.getByRole('button', {
+    name: 'Continue to Stripe Checkout',
+    exact: true,
+  })
+  await expect(pay).toBeEnabled()
+  await pay.click()
+  await expect(
+    page.getByRole('region', { name: 'Stock availability' }),
+  ).toContainText('You requested 12. Only 10 are currently available.')
+  await expect(pay).toBeDisabled()
+  await page.screenshot({
+    path: info.outputPath('checkout-stock-shortage.png'),
+    fullPage: true,
+  })
+  await page
+    .getByRole('button', { name: 'Update quantity to 10', exact: true })
+    .click()
+  await expect.poll(() => scenario.saved).toEqual([10])
+  await expect(pay).toBeEnabled()
+  await pay.click()
+  await page.waitForURL('https://checkout.stripe.com/**')
+  expect(starts).toHaveLength(2)
+  expect(starts[0].requestId).not.toBe(starts[1].requestId)
+  expect(starts[1]).not.toHaveProperty('priceMinor')
+  await expect(page.getByText('Stripe Checkout opened')).toBeVisible()
+})
+
+test('checkout with zero available stock offers removal and does not redirect', async ({
+  page,
+}) => {
+  const scenario = await checkoutScenario(page)
+  await page.route('**/v1/checkout/start', (route) =>
+    route.fulfill({ status: 409, json: scenario.shortage(0) }),
+  )
+  await page.goto('/checkout')
+  const pay = page.getByRole('button', {
+    name: 'Continue to Stripe Checkout',
+    exact: true,
+  })
+  await expect(pay).toBeEnabled()
+  await pay.click()
+  await expect(
+    page.getByRole('region', { name: 'Stock availability' }),
+  ).toContainText('Only 0 are currently available.')
+  await expect(
+    page.getByRole('button', { name: 'Update quantity', exact: false }),
+  ).toHaveCount(0)
+  await page.getByRole('button', { name: 'Remove item', exact: true }).click()
+  await expect.poll(() => scenario.quantity()).toBe(0)
+  await expect(pay).toBeDisabled()
+  await expect(
+    page.getByRole('region', { name: 'Stock availability' }),
+  ).toHaveCount(0)
+})
+
+test('uncertain checkout retries the same frozen request before redirecting to Stripe', async ({
+  page,
+}) => {
+  const scenario = await checkoutScenario(page, 2)
+  const starts = []
+  await page.route('**/v1/checkout/start', (route) => {
+    starts.push(route.request().postDataJSON())
+    return route.fulfill(
+      starts.length === 1
+        ? { status: 503, json: { message: 'Checkout uncertain' } }
+        : { json: scenario.session() },
+    )
+  })
+  await page.goto('/checkout')
+  const pay = page.getByRole('button', {
+    name: 'Continue to Stripe Checkout',
+    exact: true,
+  })
+  await expect(pay).toBeEnabled()
+  await pay.click()
+  const retry = page.getByRole('button', {
+    name: 'Retry checkout',
+    exact: true,
+  })
+  await expect(retry).toBeEnabled()
+  expect(starts).toHaveLength(1)
+  await retry.click()
+  await page.waitForURL('https://checkout.stripe.com/**')
+  expect(starts).toHaveLength(2)
+  expect(starts[1]).toEqual(starts[0])
+})
+
+function pendingCheckoutOrder(status = 'PENDING_PAYMENT') {
+  return {
+    id: id(80),
+    reservationId: id(81),
+    requestId: id(82),
+    status,
+    currency: 'USD',
+    subtotalMinor: 3998,
+    discountMinor: 0,
+    shippingMinor: 0,
+    taxMinor: 0,
+    totalMinor: 3998,
+    lines: [],
+    paymentDeadlineAt: new Date(Date.now() + 31 * 60000).toISOString(),
+    paidAt: status === 'PAID' ? new Date().toISOString() : null,
+  }
+}
+
+test('Stripe success return waits for server payment confirmation', async ({
+  page,
+}) => {
+  await checkoutScenario(page, 2)
+  let paid = false,
+    checks = 0
+  await page.route('**/v1/orders/' + id(80), (route) =>
+    route.fulfill({ json: pendingCheckoutOrder() }),
+  )
+  await page.route('**/v1/payments/orders/' + id(80), (route) =>
+    route.fulfill({
+      json: {
+        checkoutStarted: true,
+        provider: 'STRIPE_TEST',
+        preparationStatus: 'AWAITING_WEBHOOK',
+      },
+    }),
+  )
+  await page.route(
+    '**/v1/checkout/orders/' + id(80) + '/reconcile',
+    (route) => {
+      checks++
+      return route.fulfill({
+        json: pendingCheckoutOrder(paid ? 'PAID' : 'PENDING_PAYMENT'),
+      })
+    },
+  )
+  await page.goto('/checkout?order=' + id(80) + '&result=success')
+  await expect(page.getByText('PENDING_PAYMENT', { exact: true })).toBeVisible()
+  await expect(
+    page.getByText('Payment confirmed. Your order is placed.', { exact: true }),
+  ).toHaveCount(0)
+  paid = true
+  await page
+    .getByRole('button', { name: 'Refresh payment status', exact: true })
+    .click()
+  await expect(
+    page.getByText('Payment confirmed. Your order is placed.', { exact: true }),
+  ).toBeVisible()
+  expect(checks).toBeGreaterThanOrEqual(2)
+})
+
+test('Stripe cancel return expires the server checkout before showing a cancelled order', async ({
+  page,
+}) => {
+  await checkoutScenario(page, 2)
+  let cancelled = false
+  await page.route('**/v1/checkout/orders/' + id(80) + '/cancel', (route) => {
+    cancelled = true
+    return route.fulfill({ json: pendingCheckoutOrder('CANCELLED') })
+  })
+  await page.route('**/v1/orders/' + id(80), (route) =>
+    route.fulfill({
+      json: pendingCheckoutOrder(cancelled ? 'CANCELLED' : 'PENDING_PAYMENT'),
+    }),
+  )
+  await page.route('**/v1/payments/orders/' + id(80), (route) =>
+    route.fulfill({
+      json: { checkoutStarted: true, preparationStatus: 'CANCELLED' },
+    }),
+  )
+  await page.goto('/checkout?order=' + id(80) + '&result=cancel')
+  await expect(page.getByText('CANCELLED', { exact: true })).toBeVisible()
+  expect(cancelled).toBe(true)
+  await expect(
+    page.getByRole('button', { name: 'Return to checkout', exact: true }),
+  ).toBeEnabled()
+})
+
+test('an account change during checkout prevents the old Stripe redirect', async ({
+  page,
+}) => {
+  const scenario = await checkoutScenario(page, 2)
+  let release,
+    started = false
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/checkout/start', async (route) => {
+    started = true
+    await gate
+    await route.fulfill({ json: scenario.session() }).catch(() => {})
+  })
+  try {
+    await page.goto('/checkout')
+    const pay = page.getByRole('button', {
+      name: 'Continue to Stripe Checkout',
+      exact: true,
+    })
+    await expect(pay).toBeEnabled()
+    await pay.click()
+    await expect.poll(() => started).toBe(true)
+    await page.evaluate(() => {
+      const channel = new BroadcastChannel('eshop-auth-customer')
+      channel.postMessage({ type: 'logout', source: 'other-checkout-tab' })
+      channel.close()
+    })
+    release()
+    await expect(page).toHaveURL(/sign-in/)
+    expect(new URL(page.url()).hostname).toBe('127.0.0.1')
   } finally {
     release()
     await page.unrouteAll({ behavior: 'wait' })

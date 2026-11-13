@@ -124,3 +124,62 @@ test('stock hold, order and payment stay distinct; only matching TEST attempts a
     false,
   )
 })
+
+test('checkout shortage recovery accepts only bounded canonical affected lines', async () => {
+  const { stockShortages } = await import('../lib/api/checkout.ts')
+  const item = {
+    itemId: '11111111-1111-4111-8111-111111111111',
+    productId: '22222222-2222-4222-8222-222222222222',
+    variantId: null,
+    title: 'Notebook',
+    sku: 'BOOK',
+    requestedQuantity: 12,
+    availableQuantity: 10,
+  }
+  assert.equal(
+    stockShortages({ code: 'INSUFFICIENT_STOCK', items: [item] }).length,
+    1,
+  )
+  assert.deepEqual(
+    stockShortages({
+      code: 'INSUFFICIENT_STOCK',
+      items: [{ ...item, itemId: 'foreign' }],
+    }),
+    [],
+  )
+  assert.deepEqual(
+    stockShortages({
+      code: 'INSUFFICIENT_STOCK',
+      items: [{ ...item, availableQuantity: 12 }],
+    }),
+    [],
+  )
+  assert.deepEqual(
+    stockShortages({
+      code: 'INSUFFICIENT_STOCK',
+      items: [{ ...item, availableQuantity: -1 }],
+    }),
+    [],
+  )
+})
+
+test('hosted checkout accepts only an unexpired Stripe HTTPS redirect', async () => {
+  const { hostedCheckout } = await import('../lib/api/checkout.ts')
+  const session = {
+    orderId: '11111111-1111-4111-8111-111111111111',
+    sessionId: 'cs_test_Example12345678',
+    url: 'https://checkout.stripe.com/c/pay/example',
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+  }
+  assert.equal(hostedCheckout(session).url, session.url)
+  for (const url of [
+    'https://evil.example/pay',
+    'http://checkout.stripe.com/pay',
+    'https://checkout.stripe.com:444/pay',
+    'https://u:p@checkout.stripe.com/pay',
+  ])
+    assert.throws(() => hostedCheckout({ ...session, url }))
+  assert.throws(() =>
+    hostedCheckout({ ...session, expiresAt: '2020-01-01T00:00:00Z' }),
+  )
+})

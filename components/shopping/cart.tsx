@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element -- Validated public product media. */
 'use client'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import {
   Sheet,
   SheetContent,
@@ -205,6 +205,7 @@ function Line({
 }) {
   const shopping = useCommerce(),
     [quantity, setQuantity] = useState(String(item.quantity))
+  const quantityInputId = useId()
   const visual = usePublicProduct(
     item.productId,
     item.title,
@@ -219,6 +220,13 @@ function Line({
     shopping.loading ||
     (shopping.busy && !shopping.quantitySaving) ||
     Boolean(shopping.pending && !shopping.busy)
+  const enteredQuantity = Number(quantity)
+  const stepQuantity =
+    Number.isInteger(enteredQuantity) &&
+    enteredQuantity >= 1 &&
+    enteredQuantity <= 99
+      ? enteredQuantity
+      : item.quantity
   function changeQuantity(value: string) {
     setQuantity(value)
     const quantity = Number(value)
@@ -270,8 +278,10 @@ function Line({
             </p>
           </div>
           <p className="text-xs text-muted">
-            {money(item.unitPriceMinor, item.currency)} per unit ·{' '}
-            {item.availableQuantity} currently available
+            {money(item.unitPriceMinor, item.currency)} per unit
+            {item.availableQuantity !== null && (
+              <> · {item.availableQuantity} currently available</>
+            )}
           </p>
           {item.status !== 'AVAILABLE' && (
             <p className="text-sm font-semibold text-amber-800">
@@ -280,28 +290,59 @@ function Line({
             </p>
           )}
           <div className="flex flex-wrap items-end gap-2">
-            <label className="block text-xs font-bold">
-              Quantity for {item.sku || item.title}
-              <input
-                className={inputClass + ' max-w-24'}
-                type="number"
-                required
-                min={1}
-                max={99}
-                step={1}
-                value={quantity}
-                disabled={quantityLocked}
-                onChange={(e) => changeQuantity(e.target.value)}
-                onBlur={() => {
-                  if (
-                    !Number.isInteger(Number(quantity)) ||
-                    Number(quantity) < 1 ||
-                    Number(quantity) > 99
-                  )
-                    setQuantity(String(item.quantity))
-                }}
-              />
-            </label>
+            <div>
+              <label
+                htmlFor={quantityInputId}
+                className="block text-xs font-bold"
+              >
+                Quantity for {item.sku || item.title}
+              </label>
+              <div className="mt-2 inline-flex h-11 items-center overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+                <button
+                  type="button"
+                  aria-label={
+                    'Decrease quantity for ' + (item.sku || item.title)
+                  }
+                  className="flex size-11 shrink-0 items-center justify-center text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:opacity-40"
+                  disabled={quantityLocked || stepQuantity <= 1}
+                  onClick={() => changeQuantity(String(stepQuantity - 1))}
+                >
+                  <Minus size={16} aria-hidden="true" />
+                </button>
+                <input
+                  id={quantityInputId}
+                  className="h-full w-12 min-w-0 border-x border-slate-200 bg-transparent text-center text-sm font-bold outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                  type="number"
+                  inputMode="numeric"
+                  required
+                  min={1}
+                  max={99}
+                  step={1}
+                  value={quantity}
+                  disabled={quantityLocked}
+                  onChange={(e) => changeQuantity(e.target.value)}
+                  onBlur={() => {
+                    if (
+                      !Number.isInteger(Number(quantity)) ||
+                      Number(quantity) < 1 ||
+                      Number(quantity) > 99
+                    )
+                      setQuantity(String(item.quantity))
+                  }}
+                />
+                <button
+                  type="button"
+                  aria-label={
+                    'Increase quantity for ' + (item.sku || item.title)
+                  }
+                  className="flex size-11 shrink-0 items-center justify-center text-ink hover:bg-canvas focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:opacity-40"
+                  disabled={quantityLocked || stepQuantity >= 99}
+                  onClick={() => changeQuantity(String(stepQuantity + 1))}
+                >
+                  <Plus size={16} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
             <button
               type="button"
               className="min-h-11 px-2 text-sm font-bold text-red-700 disabled:opacity-50"

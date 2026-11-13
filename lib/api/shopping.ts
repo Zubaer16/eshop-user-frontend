@@ -30,7 +30,7 @@ export type CartLine = {
   title: string
   sku: string | null
   quantity: number
-  availableQuantity: number
+  availableQuantity: number | null
   unitPriceMinor: number
   lineTotalMinor: number
   currency: string
@@ -43,6 +43,7 @@ export type CartLine = {
 }
 export type CartQuote = {
   cartId: string | null
+  stockChecked?: boolean
   items: CartLine[]
   currency: string | null
   subtotalMinor: number
@@ -100,7 +101,8 @@ export function readCart(value: unknown): CartQuote {
         integer(line.quantity) &&
         line.quantity >= 1 &&
         line.quantity <= 99 &&
-        integer(line.availableQuantity) &&
+        (integer(line.availableQuantity) ||
+          (q.stockChecked === false && line.availableQuantity === null)) &&
         integer(line.unitPriceMinor) &&
         integer(line.lineTotalMinor) &&
         /^[A-Z]{3}$/.test(line.currency) &&

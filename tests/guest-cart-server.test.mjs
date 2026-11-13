@@ -107,7 +107,7 @@ test('atomic guest add forwards one stable operation with an existing capability
   assert.equal(f.calls.length, 1)
   assert.equal(
     f.calls[0].url,
-    'https://api.example.test/v1/guest-cart/items/add',
+    'https://api.example.test/v1/guest-cart/items/add?view=draft',
   )
   assert.equal(f.calls[0].method, 'POST')
   assert.deepEqual(f.calls[0].data, input)
@@ -141,7 +141,7 @@ test('first atomic guest add creates a capability, then adds; rejects missing re
   )
   assert.equal(
     f.calls[1].url,
-    'https://api.example.test/v1/guest-cart/items/add',
+    'https://api.example.test/v1/guest-cart/items/add?view=draft',
   )
 })
 test('guest read without a cookie does not create a cart or reveal any capability', async () => {
@@ -221,7 +221,10 @@ test('merge restores only the intended current customer, rotates the auth cookie
     body = await response.json()
   assert.equal(response.status, 200)
   assert.deepEqual(f.sessions, [{ action: 'refresh' }])
-  assert.equal(f.calls[0].url, 'https://api.example.test/v1/cart/merge')
+  assert.equal(
+    f.calls[0].url,
+    'https://api.example.test/v1/cart/merge?view=draft',
+  )
   assert.equal(f.calls[0].headers.Authorization, 'Bearer ' + access)
   assert.deepEqual(f.calls[0].data, { guestToken: token })
   assert.equal(f.calls[0].headers['X-Guest-Cart-Token'], undefined)

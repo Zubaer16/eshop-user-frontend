@@ -61,6 +61,8 @@ export type Order = Totals & {
 }
 export type Payment = {
   orderId: string
+  checkoutStarted?: boolean
+  checkoutSessionId?: string | null
   provider: 'STRIPE_TEST'
   preparationStatus: string
   amountMinor: number
@@ -183,4 +185,66 @@ export function paymentEligible(
     payment.amountMinor === order.totalMinor &&
     ['READY', 'CONFIRMING', 'CAPTURING'].includes(payment.preparationStatus)
   )
+}
+
+export type StockShortage = {
+  itemId: string
+  productId: string
+  variantId: string | null
+  title: string
+  sku: string | null
+  requestedQuantity: number
+  availableQuantity: number
+}
+export function stockShortages(value: unknown): StockShortage[] {
+  const body = value as { code?: unknown; items?: StockShortage[] } | null
+  if (
+    body?.code !== 'INSUFFICIENT_STOCK' ||
+    !Array.isArray(body.items) ||
+    !body.items.length ||
+    body.items.length > 50
+  )
+    return []
+  if (
+    !body.items.every(
+      (line) =>
+        line &&
+        canonicalId(line.itemId) &&
+        canonicalId(line.productId) &&
+        (line.variantId === null || canonicalId(line.variantId)) &&
+        typeof line.title === 'string' &&
+        line.title.length <= 240 &&
+        Number.isInteger(line.requestedQuantity) &&
+        line.requestedQuantity >= 1 &&
+        line.requestedQuantity <= 99 &&
+        Number.isSafeInteger(line.availableQuantity) &&
+        line.availableQuantity >= 0 &&
+        line.availableQuantity < line.requestedQuantity,
+    )
+  )
+    return []
+  return body.items
+}
+export function hostedCheckout(value: unknown) {
+  const result = value as {
+    orderId: string
+    sessionId: string
+    url: string
+    expiresAt: string
+  }
+  const url = new URL(result.url)
+  if (
+    !canonicalId(result.orderId) ||
+    !/^cs_test_[A-Za-z0-9]{6,120}$/.test(result.sessionId) ||
+    url.protocol !== 'https:' ||
+    url.origin !== 'https://checkout.stripe.com' ||
+    url.username ||
+    url.password ||
+    !Number.isFinite(Date.parse(result.expiresAt)) ||
+    Date.parse(result.expiresAt) <= Date.now()
+  )
+    throw new Error(
+      'Invalid Stripe Checkout response. Refresh checkout status.',
+    )
+  return result
 }
