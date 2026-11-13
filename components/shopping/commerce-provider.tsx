@@ -15,7 +15,12 @@ import {
   type CartSelection,
   type Wishlist,
 } from '@/lib/api/shopping'
-import type { AddPreview, OptimisticAddition } from '@/lib/api/cart-preview'
+import {
+  projectQuantities,
+  type AddPreview,
+  type OptimisticAddition,
+  type QuantityDraft,
+} from '@/lib/api/cart-preview'
 import type { Session } from '@/lib/api/runtime'
 
 const keyOf = (session: Session) =>
@@ -47,6 +52,7 @@ type Commerce = State & {
   reload: () => void
   add: (selection: CartSelection, preview: AddPreview) => Promise<boolean>
   optimisticAdds: OptimisticAddition[]
+  quantitySaving: boolean
   canAdd: boolean
   setQuantity: (selection: CartSelection) => Promise<boolean>
   remove: (id: string) => Promise<boolean>
@@ -101,6 +107,10 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   const addQueue = useRef<OptimisticAddition[]>([])
   const activeAdd = useRef<OptimisticAddition | null>(null)
   const addTimer = useRef<number | undefined>(undefined)
+  const [quantityDrafts, setQuantityDrafts] = useState<QuantityDraft[]>([])
+  const quantityQueue = useRef<QuantityDraft[]>([])
+  const activeQuantity = useRef<QuantityDraft | null>(null)
+  const quantityTimer = useRef<number | undefined>(undefined)
   const generation = useRef(0)
   const view = state.owner === owner ? state : blank(owner)
   function guard(ticket: string) {
@@ -185,7 +195,12 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     }
     void load()
     const focus = () => {
-      if (document.visibilityState === 'visible' && !writing.current)
+      if (
+        document.visibilityState === 'visible' &&
+        !writing.current &&
+        !quantityQueue.current.length &&
+        !addQueue.current.length
+      )
         void load()
     }
     const channel =
@@ -197,7 +212,9 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
         if (
           event.data?.type === 'changed' &&
           event.data.source !== sessionSource &&
-          !writing.current
+          !writing.current &&
+          !quantityQueue.current.length &&
+          !addQueue.current.length
         )
           void load()
       }
@@ -221,12 +238,21 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     addQueue.current = []
     activeAdd.current = null
     setOptimisticAdds([])
-    return () => window.clearTimeout(addTimer.current)
+    window.clearTimeout(quantityTimer.current)
+    quantityTimer.current = undefined
+    quantityQueue.current = []
+    activeQuantity.current = null
+    setQuantityDrafts([])
+    return () => {
+      window.clearTimeout(addTimer.current)
+      window.clearTimeout(quantityTimer.current)
+    }
   }, [owner])
   useEffect(() => {
     if (
       (!pending || pending.owner !== owner) &&
-      !optimisticAdds.some((row) => row.owner === owner)
+      !optimisticAdds.some((row) => row.owner === owner) &&
+      !quantityDrafts.some((row) => row.owner === owner)
     )
       return
     const leaving = (event: BeforeUnloadEvent) => {
@@ -235,7 +261,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     }
     window.addEventListener('beforeunload', leaving)
     return () => window.removeEventListener('beforeunload', leaving)
-  }, [pending, owner, optimisticAdds])
+  }, [pending, owner, optimisticAdds, quantityDrafts])
   async function quoteFor(ticket: string, guest: boolean) {
     return guest
       ? await readGuest(ticket)
@@ -293,6 +319,8 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     const ticket = owner
     if (
       writing.current === ticket ||
+      (action !== 'set' &&
+        (activeQuantity.current || quantityQueue.current.length > 0)) ||
       (action !== 'add' &&
         (activeAdd.current || addQueue.current.length > 0)) ||
       view.loading ||
@@ -333,7 +361,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
           quote = await execute(change)
         } catch (error) {
           if (
-            action === 'add' &&
+            (action === 'add' || action === 'set') &&
             error instanceof ApiRequestError &&
             [400, 401, 403, 404, 409, 422, 429].includes(error.status) &&
             pendingRef.current?.owner === ticket
@@ -357,8 +385,7 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
             ? { guest: quote }
             : { cart: quote }),
           cartError: '',
-          notice:
-            'Cart change confirmed. Prices and availability were recalculated.',
+          notice: '',
         })
         announce()
         return true
@@ -430,6 +457,8 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     if (
       view.loading ||
       (writing.current && !activeAdd.current) ||
+      quantityQueue.current.length > 0 ||
+      activeQuantity.current ||
       (pendingRef.current && !writing.current)
     )
       return false
@@ -481,8 +510,84 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     scheduleAdds()
     return true
   }
+  function publishQuantities() {
+    const current = keyOf(api.getSnapshot())
+    setQuantityDrafts(
+      [
+        ...(activeQuantity.current ? [activeQuantity.current] : []),
+        ...quantityQueue.current,
+      ].filter((row) => row.owner === current),
+    )
+  }
+  function finishQuantity(operation: QuantityDraft, confirmed: boolean) {
+    if (
+      keyOf(api.getSnapshot()) !== operation.owner ||
+      activeQuantity.current !== operation
+    )
+      return
+    if (confirmed) {
+      activeQuantity.current = null
+      publishQuantities()
+      if (quantityQueue.current.length) scheduleQuantities(0)
+    } else if (!pendingRef.current) {
+      activeQuantity.current = null
+      quantityQueue.current = []
+      publishQuantities()
+    }
+  }
+  function scheduleQuantities(delay = 350) {
+    if (activeQuantity.current) return
+    window.clearTimeout(quantityTimer.current)
+    quantityTimer.current = window.setTimeout(() => {
+      quantityTimer.current = undefined
+      const operation = quantityQueue.current.shift()
+      if (!operation || operation.owner !== keyOf(api.getSnapshot())) return
+      activeQuantity.current = operation
+      publishQuantities()
+      void cartChange(
+        'set',
+        operation.selection,
+        undefined,
+        false,
+        operation.guest,
+      ).then((confirmed) => finishQuantity(operation, confirmed))
+    }, delay)
+  }
+  async function queueQuantity(selection: CartSelection, guest = false) {
+    guard(owner)
+    if (
+      view.loading ||
+      activeAdd.current ||
+      addQueue.current.length ||
+      (writing.current && !activeQuantity.current) ||
+      (pendingRef.current && !writing.current)
+    )
+      return false
+    const desired = validateSelection(selection)
+    const quote = guest ? view.guest : view.cart
+    if (
+      !quote?.items.some(
+        (row) =>
+          row.productId === desired.productId &&
+          row.variantId === desired.variantId,
+      )
+    )
+      return false
+    quantityQueue.current = quantityQueue.current.filter(
+      (row) =>
+        row.guest !== guest ||
+        row.selection.productId !== desired.productId ||
+        row.selection.variantId !== desired.variantId,
+    )
+    quantityQueue.current.push({ owner, guest, selection: desired })
+    update(owner, { cartError: '', notice: '' })
+    publishQuantities()
+    scheduleQuantities()
+    return true
+  }
   async function retryChange() {
     const operation = activeAdd.current
+    const quantityOperation = activeQuantity.current
     const confirmed = await cartChange(
       pendingRef.current?.action === 'add' ? 'add' : 'set',
       undefined,
@@ -490,12 +595,17 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
       true,
     )
     if (operation) finishAdd(operation, confirmed)
+    if (quantityOperation) finishQuantity(quantityOperation, confirmed)
     return confirmed
   }
   async function guestAction(merge: boolean) {
     const ticket = owner
     if (
       (merge && !authenticated) ||
+      activeQuantity.current ||
+      quantityQueue.current.length > 0 ||
+      activeAdd.current ||
+      addQueue.current.length > 0 ||
       writing.current === ticket ||
       view.loading ||
       pendingRef.current?.owner === ticket
@@ -549,7 +659,15 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
   }
   async function save(id: string, wanted: boolean) {
     const ticket = owner
-    if (!authenticated || writing.current === ticket || view.loading)
+    if (
+      !authenticated ||
+      writing.current === ticket ||
+      view.loading ||
+      activeQuantity.current ||
+      quantityQueue.current.length ||
+      activeAdd.current ||
+      addQueue.current.length
+    )
       return false
     writing.current = ticket
     setBusyOwner(ticket)
@@ -585,25 +703,35 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
     <Context.Provider
       value={{
         ...view,
+        cart: projectQuantities(
+          view.cart,
+          quantityDrafts.filter((row) => row.owner === owner && !row.guest),
+        ),
+        guest: projectQuantities(
+          view.guest,
+          quantityDrafts.filter((row) => row.owner === owner && row.guest),
+        ),
+        quantitySaving: quantityDrafts.some((row) => row.owner === owner),
         authenticated,
         cartOpen,
         setCartOpen,
         busy:
           busyOwner === owner ||
-          (optimisticAdds.some((row) => row.owner === owner) && !pending),
+          (optimisticAdds.some((row) => row.owner === owner) && !pending) ||
+          (quantityDrafts.some((row) => row.owner === owner) && !pending),
         optimisticAdds: optimisticAdds.filter((row) => row.owner === owner),
         canAdd:
           ready &&
           !view.loading &&
+          !quantityDrafts.some((row) => row.owner === owner) &&
           (!writing.current || Boolean(activeAdd.current)) &&
           (!pending || busyOwner === owner),
         pending: pending?.owner === owner ? pending : null,
         reload,
         add,
-        setQuantity: (selection) => cartChange('set', selection),
+        setQuantity: (selection) => queueQuantity(selection),
         remove: (id) => cartChange('remove', undefined, id),
-        setGuestQuantity: (selection) =>
-          cartChange('set', selection, undefined, false, true),
+        setGuestQuantity: (selection) => queueQuantity(selection, true),
         removeGuest: (id) => cartChange('remove', undefined, id, false, true),
         clear: () => cartChange('clear'),
         retry: retryChange,
@@ -613,6 +741,11 @@ export function CommerceProvider({ children }: { children: React.ReactNode }) {
           addQueue.current = []
           activeAdd.current = null
           setOptimisticAdds([])
+          window.clearTimeout(quantityTimer.current)
+          quantityTimer.current = undefined
+          quantityQueue.current = []
+          activeQuantity.current = null
+          setQuantityDrafts([])
           pendingWrite(null)
           update(owner, {
             cartError: '',

@@ -1,5 +1,8 @@
 # Storefront architecture
 
+Current quantity/save policy: [cart autosave and checkout validation](CART_QUANTITY_AUTOSAVE_2026-11-13.md). This supersedes older manual quantity forms and Add-time stock-rejection notes below.
+
+
 The customer app has one rendering path. The design established before Backend development now displays canonical API content. The temporary mode switch, sample catalog/cart/orders and duplicate page tree are removed.
 
 Routes compose actual features. `UserBoundary`/`RequireAuth` protect private navigation; `AuthProvider` restores the real session. `CommerceProvider` manages API-derived customer/guest carts and wishlist with owner/epoch fencing, explicit merge, current quotes and uncertain-write recovery. It does not persist fictional products or own money/stock authority.

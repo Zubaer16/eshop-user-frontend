@@ -364,8 +364,8 @@ for (const authenticated of [false, true])
         drawer.getByText('Estimated subtotal', { exact: true }),
       ).toBeVisible()
       await expect(
-        drawer.getByText('Cart change confirmed.', { exact: false }),
-      ).toHaveCount(0)
+        drawer.getByRole('button', { name: 'Refresh cart', exact: true }),
+      ).toBeDisabled()
       if (!authenticated)
         expect(
           await page.evaluate(
@@ -389,8 +389,8 @@ for (const authenticated of [false, true])
       expect(reads).toBe(0)
       release()
       await expect(
-        drawer.getByText('Cart change confirmed.', { exact: false }),
-      ).toBeVisible()
+        drawer.getByRole('button', { name: 'Refresh cart', exact: true }),
+      ).toBeEnabled()
       await expect(
         drawer.getByRole('region', { name: 'Cart additions syncing' }),
       ).toHaveCount(0)
@@ -1102,8 +1102,8 @@ test('uncertain Add pauses and explicit retry reuses the request ID without doub
   await expect(retry).toBeEnabled()
   await retry.click()
   await expect(
-    drawer.getByText('Cart change confirmed.', { exact: false }),
-  ).toBeVisible()
+    drawer.getByRole('button', { name: 'Refresh cart', exact: true }),
+  ).toBeEnabled()
   await expect(
     drawer.getByRole('region', { name: 'Cart additions syncing' }),
   ).toHaveCount(0)
@@ -1164,6 +1164,142 @@ test('account switch removes optimistic data and cancels unsent additions', asyn
       drawer.getByText('Your cart is empty', { exact: true }),
     ).toBeVisible()
     expect(writes).toBe(1)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+for (const authenticated of [false, true])
+  test(`${authenticated ? 'account' : 'guest'} quantity autosaves, shows totals immediately and keeps latest edits during a slow write`, async ({
+    page,
+  }) => {
+    await mock(page, { authenticated })
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    const writes = []
+    const respond = async (route, body) => {
+      writes.push(body)
+      if (writes.length === 1) await gate
+      return confirmedCart(body.quantity)
+    }
+    await page.route('**/v1/cart/items', async (route) => {
+      await route.fulfill({
+        json: await respond(route, route.request().postDataJSON()),
+      })
+    })
+    await page.route('**/api/cart/guest', async (route) => {
+      const data = route.request().postDataJSON()
+      await route.fulfill({
+        json: {
+          guest: !authenticated,
+          cart: data.action === 'set' ? await respond(route, data) : cart,
+        },
+      })
+    })
+    try {
+      await page.goto('/cart')
+      const input = page.getByLabel('Quantity for ' + products[0].sku, {
+        exact: true,
+      })
+      await expect(input).toHaveValue('1')
+      await expect(
+        page.getByRole('button', { name: 'Update quantity', exact: true }),
+      ).toHaveCount(0)
+      await input.fill('2')
+      await expect(
+        page.getByRole('button', { name: 'Open cart, 2 items', exact: true }),
+      ).toHaveCount(1)
+      const summary = page.locator('aside').filter({ hasText: 'Order summary' })
+      await expect(summary).toContainText(
+        '$' + ((products[0].priceMinor * 2) / 100).toFixed(2),
+      )
+      await expect.poll(() => writes.length).toBe(1)
+      await expect(input).toBeEnabled()
+      await input.fill('5')
+      await expect(summary).toContainText(
+        '$' + ((products[0].priceMinor * 5) / 100).toFixed(2),
+      )
+      expect(writes).toHaveLength(1)
+      release()
+      await expect.poll(() => writes.length).toBe(2)
+      await expect(input).toHaveValue('5')
+      await expect(
+        page.getByRole('button', { name: 'Refresh cart', exact: true }),
+      ).toBeEnabled()
+      expect(writes.map((body) => body.quantity)).toEqual([2, 5])
+    } finally {
+      release()
+      await page.unrouteAll({ behavior: 'wait' })
+    }
+  })
+
+test('failed quantity save restores the confirmed total and leaves the input usable', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  await page.route('**/v1/cart/items', (route) =>
+    route.fulfill({ status: 409, json: { message: 'Cart edit rejected' } }),
+  )
+  await page.goto('/cart')
+  const input = page.getByLabel('Quantity for ' + products[0].sku, {
+    exact: true,
+  })
+  await expect(input).toHaveValue('1')
+  await input.fill('4')
+  await expect(
+    page.getByText('Cart edit rejected', { exact: false }),
+  ).toBeVisible()
+  await expect(input).toHaveValue('1')
+  await expect(input).toBeEnabled()
+})
+
+test('uncertain quantity saves pause later edits and retry the frozen quantity before the latest queued target', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  const writes = []
+  await page.route('**/v1/cart/items', async (route) => {
+    const body = route.request().postDataJSON()
+    writes.push(body)
+    if (writes.length === 1) {
+      await gate
+      return route.fulfill({
+        status: 503,
+        json: { message: 'Save unconfirmed' },
+      })
+    }
+    return route.fulfill({ json: confirmedCart(body.quantity) })
+  })
+  try {
+    await page.goto('/cart')
+    const input = page.getByLabel('Quantity for ' + products[0].sku, {
+      exact: true,
+    })
+    await expect(input).toHaveValue('1')
+    await input.fill('2')
+    await expect.poll(() => writes.length).toBe(1)
+    await input.fill('5')
+    release()
+    const retry = page.getByRole('button', {
+      name: 'Retry same cart change',
+      exact: true,
+    })
+    await expect(retry).toBeEnabled()
+    await expect(input).toBeDisabled()
+    expect(writes).toHaveLength(1)
+    await retry.click()
+    await expect.poll(() => writes.length).toBe(3)
+    expect(writes.map((body) => body.quantity)).toEqual([2, 2, 5])
+    await expect(input).toHaveValue('5')
+    await expect(input).toBeEnabled()
+    await expect(retry).toHaveCount(0)
   } finally {
     release()
     await page.unrouteAll({ behavior: 'wait' })

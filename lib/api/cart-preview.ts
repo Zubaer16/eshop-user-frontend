@@ -15,6 +15,32 @@ export type OptimisticAddition = {
   selection: CartSelection
   preview: AddPreview
 }
+export type QuantityDraft = {
+  owner: string
+  guest: boolean
+  selection: CartSelection
+}
+export function projectQuantities(
+  cart: CartQuote | null,
+  drafts: QuantityDraft[],
+) {
+  if (!cart) return cart
+  const items = cart.items.map((item) => {
+    const draft = drafts.findLast(
+      (row) =>
+        row.selection.productId === item.productId &&
+        row.selection.variantId === item.variantId,
+    )
+    if (!draft) return item
+    const quantity = draft.selection.quantity
+    return { ...item, quantity, lineTotalMinor: item.unitPriceMinor * quantity }
+  })
+  return {
+    ...cart,
+    items,
+    subtotalMinor: items.reduce((sum, item) => sum + item.lineTotalMinor, 0),
+  }
+}
 export function additionPreview(
   product: Product | StoreProductCard,
   variantId = '',

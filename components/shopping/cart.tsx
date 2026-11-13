@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element -- Validated public product media. */
 'use client'
 import Link from 'next/link'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Sheet,
   SheetContent,
@@ -189,8 +189,8 @@ export function ProductActions({
       )}
       {!compact && (
         <p className="text-xs text-muted">
-          The server recalculates price and stock. Adding items does not reserve
-          stock or create an order.
+          Prices and stock are confirmed at checkout. Adding items does not
+          reserve stock or create an order.
         </p>
       )}
     </div>
@@ -212,14 +212,23 @@ function Line({
     item.status !== 'UNPUBLISHED',
   )
   const src = imageUrl(visual.product?.gallery[0]?.url)
-  async function submit(event: FormEvent) {
-    event.preventDefault()
+  useEffect(() => {
+    setQuantity(String(item.quantity))
+  }, [item.quantity])
+  const quantityLocked =
+    shopping.loading ||
+    (shopping.busy && !shopping.quantitySaving) ||
+    Boolean(shopping.pending && !shopping.busy)
+  function changeQuantity(value: string) {
+    setQuantity(value)
+    const quantity = Number(value)
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) return
     const selection = {
       productId: item.productId,
       variantId: item.variantId,
-      quantity: Number(quantity),
+      quantity,
     }
-    await (guestPending
+    void (guestPending
       ? shopping.setGuestQuantity(selection)
       : shopping.setQuantity(selection))
   }
@@ -270,7 +279,7 @@ function Line({
               before checkout.
             </p>
           )}
-          <form className="flex flex-wrap items-end gap-2" onSubmit={submit}>
+          <div className="flex flex-wrap items-end gap-2">
             <label className="block text-xs font-bold">
               Quantity for {item.sku || item.title}
               <input
@@ -281,17 +290,18 @@ function Line({
                 max={99}
                 step={1}
                 value={quantity}
-                disabled={shopping.busy || Boolean(shopping.pending)}
-                onChange={(e) => setQuantity(e.target.value)}
+                disabled={quantityLocked}
+                onChange={(e) => changeQuantity(e.target.value)}
+                onBlur={() => {
+                  if (
+                    !Number.isInteger(Number(quantity)) ||
+                    Number(quantity) < 1 ||
+                    Number(quantity) > 99
+                  )
+                    setQuantity(String(item.quantity))
+                }}
               />
             </label>
-            <button
-              className={actionClass}
-              disabled={shopping.busy || Boolean(shopping.pending)}
-              type="submit"
-            >
-              Update quantity
-            </button>
             <button
               type="button"
               className="min-h-11 px-2 text-sm font-bold text-red-700 disabled:opacity-50"
@@ -304,7 +314,7 @@ function Line({
             >
               Remove item
             </button>
-          </form>
+          </div>
         </div>
       </div>
     </article>
@@ -320,11 +330,7 @@ function Lines({
   return (
     <div className="space-y-3">
       {quote.items.map((item) => (
-        <Line
-          key={item.id + ':' + item.quantity + ':' + item.status}
-          item={item}
-          guestPending={guestPending}
-        />
+        <Line key={item.id} item={item} guestPending={guestPending} />
       ))}
     </div>
   )
@@ -382,7 +388,7 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
           role="status"
           className="rounded-xl bg-blue-50 p-4 text-sm text-primary"
         >
-          Updating your cart… Confirming current prices and availability.
+          Saving your cart…
         </p>
       )}
       {additions.length > 0 && (
@@ -468,8 +474,7 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
                 </span>
               </div>
               <p className="mt-2 text-xs text-muted">
-                Updating prices and availability. Final totals are confirmed
-                before checkout.
+                Prices and availability are confirmed at checkout.
               </p>
             </div>
           )}
@@ -553,7 +558,7 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
             >
               <h2 className="text-lg font-extrabold">Order summary</h2>
               <div className="flex justify-between font-bold">
-                <span>Available-items subtotal</span>
+                <span>Estimated subtotal</span>
                 <span>
                   {quote.currency
                     ? money(quote.subtotalMinor, quote.currency)
@@ -561,8 +566,8 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
                 </span>
               </div>
               <p className="mt-3 text-xs text-muted">
-                Server quote: {quote.quotedAt}. This is not a payable amount.
-                Tax/shipping and reservations are calculated during checkout.
+                Final prices and stock are confirmed at checkout. Tax/shipping
+                and reservations are calculated during checkout.
               </p>
               {quote.issues.length > 0 && (
                 <p role="status" className="mt-3 text-sm text-amber-800">

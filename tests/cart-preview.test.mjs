@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { additionPreview, estimateAdditions } from '../lib/api/cart-preview.ts'
+import {
+  additionPreview,
+  estimateAdditions,
+  projectQuantities,
+} from '../lib/api/cart-preview.ts'
 
 test('optimistic preview uses selected variant display data without mutating the server quote', () => {
   const product = {
@@ -54,4 +58,26 @@ test('optimistic amounts never combine currencies or display invalid arithmetic'
     ]).subtotalMinor,
     null,
   )
+})
+
+test('quantity projection uses the latest absolute draft and displayed unit price without mutating a quote', () => {
+  const line = {
+    productId: 'p',
+    variantId: null,
+    quantity: 1,
+    unitPriceMinor: 799,
+    lineTotalMinor: 799,
+    status: 'AVAILABLE',
+  }
+  const quote = { items: [line], subtotalMinor: 799, checkoutReady: true }
+  const selection = { productId: 'p', variantId: null, quantity: 2 }
+  const projected = projectQuantities(quote, [
+    { selection },
+    { selection: { ...selection, quantity: 5 } },
+  ])
+  assert.equal(projected.items[0].quantity, 5)
+  assert.equal(projected.items[0].lineTotalMinor, 3995)
+  assert.equal(projected.subtotalMinor, 3995)
+  assert.equal(quote.items[0].quantity, 1)
+  assert.equal(quote.subtotalMinor, 799)
 })

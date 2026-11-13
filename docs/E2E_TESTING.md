@@ -1,5 +1,8 @@
 # Storefront browser regressions
 
+Current quantity/save policy: [cart autosave and checkout validation](CART_QUANTITY_AUTOSAVE_2026-11-13.md). This supersedes older manual quantity forms and Add-time stock-rejection notes below.
+
+
 There is one API-backed suite: `e2e/storefront.spec.mjs`. Temporary sample-only journeys/helpers are retired; API/session/commerce/security unit tests remain under `tests/`.
 
 ```powershell
