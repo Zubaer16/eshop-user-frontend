@@ -50,6 +50,7 @@ export function Checkout() {
   const [loading, setLoading] = useState(true)
   const [deliveryLoading, setDeliveryLoading] = useState(false)
   const [error, setError] = useState('')
+  const [deliveryError, setDeliveryError] = useState('')
   const [notice, setNotice] = useState('')
   const mounted = useRef(true)
   const writing = useRef(false)
@@ -99,12 +100,15 @@ export function Checkout() {
     guard()
     setOrder(current)
     setPayment(prepared)
-    return current
+    return { order: current, payment: prepared }
   }
   async function recover() {
     const result = await api.request<Recovery>('/v1/checkout/recovery')
     guard()
-    setHold(result.reservation ? readReservation(result.reservation) : null)
+    const reservation = result.reservation
+      ? readReservation(result.reservation)
+      : null
+    setHold(reservation)
     const query = new URLSearchParams(window.location.search)
     const id = query.get('order') || result.orderId
     if (id && !canonicalId(id)) throw new Error('Invalid order identifier.')
@@ -117,16 +121,19 @@ export function Checkout() {
         guard()
         window.history.replaceState(null, '', '/checkout?order=' + id)
       }
-      await loadOrder(id)
+      return { reservation, checkout: await loadOrder(id) }
     }
+    return { reservation, checkout: null }
   }
   useEffect(() => {
     mounted.current = true
     void (async () => {
       try {
-        const result = await api.request<{ items: Address[] }>(
-          '/v1/account/addresses',
-        )
+        const query = new URLSearchParams(window.location.search)
+        const [result] = await Promise.all([
+          api.request<{ items: Address[] }>('/v1/account/addresses'),
+          query.has('order') ? recover() : Promise.resolve(),
+        ])
         guard()
         setAddresses(result.items)
         setAddressId(
@@ -134,7 +141,6 @@ export function Checkout() {
             result.items[0]?.id ||
             '',
         )
-        await recover()
       } catch (failure) {
         if (mounted.current)
           setError(
@@ -182,11 +188,11 @@ export function Checkout() {
             ? previous
             : result.options[0]?.kind || '',
         )
-        setError('')
+        setDeliveryError('')
       })
       .catch((failure) => {
         if (active && mounted.current)
-          setError(
+          setDeliveryError(
             failure instanceof Error
               ? failure.message
               : 'Delivery options could not be loaded.',
@@ -285,6 +291,17 @@ export function Checkout() {
       if (mounted.current) setBusy(false)
     }
   }
+  async function resumeOrder(id: string) {
+    const result = hostedCheckout(
+      await api.request('/v1/checkout/orders/' + id + '/session', {
+        method: 'POST',
+        timeoutMs: 45000,
+      }),
+    )
+    guard()
+    redirecting.current = true
+    window.location.assign(result.url)
+  }
   async function start(value: CheckoutIntent) {
     await shopping.rememberCheckout(value.requestId, value.items)
     guard()
@@ -355,14 +372,14 @@ export function Checkout() {
       </ol>
       <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-6 rounded-[22px] border border-border bg-white p-5 sm:p-7">
-          <ErrorMessage text={error} />
+          <ErrorMessage text={error || deliveryError} />
           {notice && (
             <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm">
               {notice}
             </p>
           )}
           {loading ? (
-            <p role="status">Restoring checkout…</p>
+            <p role="status">Loading checkout…</p>
           ) : order ? (
             <section className="space-y-5">
               <h2 className="break-all text-xl font-bold">Order {order.id}</h2>
@@ -390,19 +407,7 @@ export function Checkout() {
                     <button
                       className={actionClass}
                       disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          const result = hostedCheckout(
-                            await api.request(
-                              '/v1/checkout/orders/' + order.id + '/session',
-                              { method: 'POST', timeoutMs: 45000 },
-                            ),
-                          )
-                          guard()
-                          redirecting.current = true
-                          window.location.assign(result.url)
-                        })
-                      }
+                      onClick={() => void run(() => resumeOrder(order.id))}
                     >
                       Continue to Stripe Checkout
                     </button>
@@ -694,6 +699,18 @@ export function Checkout() {
                             items: checkoutItems(shopping.cart),
                             shippingAddress: shippingSnapshot(address),
                           }
+                          const recovered = await recover()
+                          if (recovered.checkout) {
+                            const previous = recovered.checkout
+                            if (
+                              previous.order.status === 'PENDING_PAYMENT' &&
+                              (!previous.payment ||
+                                previous.payment.checkoutStarted)
+                            )
+                              await resumeOrder(previous.order.id)
+                            return
+                          }
+                          if (recovered.reservation?.status === 'ACTIVE') return
                           setIntent(value)
                           setShortages([])
                           await start(value)

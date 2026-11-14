@@ -1,5 +1,17 @@
 # Storefront browser regressions
 
+## Checkout recovery moves to the payment action - 2026-11-14
+
+The owner approved deferring checkout recovery until Continue to Stripe Checkout is clicked. Ordinary /checkout visits load saved addresses and delivery options without calling /v1/checkout/recovery. The initial status reads Loading checkout while addresses are loading. Returns and links containing an order query parameter recover automatically. On those visits, address loading and recovery run concurrently.
+
+The payment action freezes the selected local items and delivery address, then checks recovery under the existing checkout/cart lock. An existing pending hosted order resumes through its owned session endpoint. A paid or terminal order shows its current state. A standalone active reservation retains the explicit release action before a fresh checkout. Recovery failures prevent a new start and leave a retryable error visible. Delivery refresh has a separate error state so it cannot clear payment-action failures. Duplicate clicks remain guarded and uncertain start retries retain the same request identity.
+
+This batch changes Storefront presentation and request timing. Existing Backend endpoints handle recovery, current price/stock validation, atomic reservation and Stripe session replay. Tax remains disabled for new checkout and missing delivery charges remain zero under the prior approved decision.
+
+Executed local validation passed production build with type checks, lint and project verification, all 63 unit tests and all 37 production-browser tests with zero retries or skips. Four new browser regressions cover deferred recovery and duplicate clicks, existing-order session reuse, retry after recovery failure and standalone-hold release. Existing stock correction, uncertain-request replay, Stripe success/cancel return, account changes and concurrent-cart preservation tests passed.
+
+Source changes are local and await commit/push and deployment. External live payment acceptance remains pending.
+
 ## Tax removal and optional delivery defaults - 2026-11-14
 
 The owner requested removal of checkout tax and a delivery charge of zero when no amount is configured. New checkout estimates and reservations use taxMinor 0. Tax configuration fields and tax_bps columns are removed. Existing order and reservation tax snapshots retain their recorded amounts, including frozen payment retries.

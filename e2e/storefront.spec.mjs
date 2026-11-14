@@ -862,6 +862,176 @@ async function checkoutScenario(page, initialQuantity = 12) {
   }
 }
 
+test('ordinary checkout defers recovery until payment and ignores duplicate clicks while recovering', async ({
+  page,
+}) => {
+  const scenario = await checkoutScenario(page, 2)
+  let recoveryCalls = 0
+  let starts = 0
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/checkout/recovery', async (route) => {
+    recoveryCalls++
+    await gate
+    await route.fulfill({ json: { reservation: null, orderId: null } })
+  })
+  await page.route('**/v1/checkout/start', (route) => {
+    starts++
+    return route.fulfill({ json: scenario.session() })
+  })
+  await page.goto('/checkout')
+  const pay = page.getByRole('button', {
+    name: 'Continue to Stripe Checkout',
+    exact: true,
+  })
+  await expect(pay).toBeEnabled()
+  expect(recoveryCalls).toBe(0)
+  await expect(
+    page.getByText('Restoring checkout…', { exact: true }),
+  ).toHaveCount(0)
+  try {
+    await pay.evaluate((button) => {
+      button.click()
+      button.click()
+    })
+    await expect.poll(() => recoveryCalls).toBe(1)
+    await expect(
+      page.getByRole('button', { name: 'Preparing checkout…', exact: true }),
+    ).toBeDisabled()
+    expect(starts).toBe(0)
+  } finally {
+    release()
+  }
+  await page.waitForURL('https://checkout.stripe.com/**')
+  expect(starts).toBe(1)
+})
+
+test('payment click resumes a recovered unpaid order without creating another checkout', async ({
+  page,
+}) => {
+  const scenario = await checkoutScenario(page, 2)
+  let starts = 0
+  let resumes = 0
+  await page.route('**/v1/checkout/recovery', (route) =>
+    route.fulfill({ json: { reservation: null, orderId: id(80) } }),
+  )
+  await page.route('**/v1/orders/' + id(80), (route) =>
+    route.fulfill({ json: pendingCheckoutOrder() }),
+  )
+  await page.route('**/v1/payments/orders/' + id(80), (route) =>
+    route.fulfill({ json: { checkoutStarted: true } }),
+  )
+  await page.route('**/v1/checkout/orders/' + id(80) + '/reconcile', (route) =>
+    route.fulfill({ json: pendingCheckoutOrder() }),
+  )
+  await page.route('**/v1/checkout/orders/' + id(80) + '/session', (route) => {
+    resumes++
+    return route.fulfill({ json: scenario.session() })
+  })
+  await page.route('**/v1/checkout/start', (route) => {
+    starts++
+    return route.fulfill({ json: scenario.session() })
+  })
+  await page.goto('/checkout')
+  await page
+    .getByRole('button', { name: 'Continue to Stripe Checkout', exact: true })
+    .click()
+  await page.waitForURL('https://checkout.stripe.com/**')
+  expect(resumes).toBe(1)
+  expect(starts).toBe(0)
+})
+
+test('recovery failure prevents a fresh checkout and allows another payment attempt', async ({
+  page,
+}) => {
+  const scenario = await checkoutScenario(page, 2)
+  let recoveryCalls = 0
+  let starts = 0
+  await page.route('**/v1/checkout/recovery', (route) => {
+    recoveryCalls++
+    return route.fulfill(
+      recoveryCalls === 1
+        ? { status: 503, json: { message: 'Checkout recovery unavailable' } }
+        : { json: { reservation: null, orderId: null } },
+    )
+  })
+  await page.route('**/v1/checkout/start', (route) => {
+    starts++
+    return route.fulfill({ json: scenario.session() })
+  })
+  await page.goto('/checkout')
+  const pay = page.getByRole('button', {
+    name: 'Continue to Stripe Checkout',
+    exact: true,
+  })
+  await pay.click()
+  await expect(
+    page.getByText(
+      'The service is temporarily unavailable. Please try again.',
+      { exact: true },
+    ),
+  ).toBeVisible()
+  expect(starts).toBe(0)
+  await expect(pay).toBeEnabled()
+  await pay.click()
+  await page.waitForURL('https://checkout.stripe.com/**')
+  expect(starts).toBe(1)
+})
+
+test('payment click exposes a recovered standalone stock hold for release before starting again', async ({
+  page,
+}) => {
+  const scenario = await checkoutScenario(page, 2)
+  let starts = 0
+  let released = false
+  const reservation = {
+    ...pendingCheckoutOrder(),
+    id: id(81),
+    requestId: id(82),
+    status: 'ACTIVE',
+    countryCode: 'US',
+    deliveryKind: null,
+    couponCode: null,
+    estimatedTotalMinor: 3998,
+    expiresAt: new Date(Date.now() + 60000).toISOString(),
+    payable: false,
+  }
+  await page.route('**/v1/checkout/recovery', (route) =>
+    route.fulfill({
+      json: { reservation: released ? null : reservation, orderId: null },
+    }),
+  )
+  await page.route('**/v1/checkout/reservations/' + id(81), (route) => {
+    released = true
+    return route.fulfill({ json: { ...reservation, status: 'RELEASED' } })
+  })
+  await page.route('**/v1/checkout/start', (route) => {
+    starts++
+    return route.fulfill({ json: scenario.session() })
+  })
+  await page.goto('/checkout')
+  await page
+    .getByRole('button', { name: 'Continue to Stripe Checkout', exact: true })
+    .click()
+  await expect(
+    page.getByRole('button', {
+      name: 'Release previous stock hold',
+      exact: true,
+    }),
+  ).toBeEnabled()
+  expect(starts).toBe(0)
+  await page
+    .getByRole('button', { name: 'Release previous stock hold', exact: true })
+    .click()
+  await page
+    .getByRole('button', { name: 'Continue to Stripe Checkout', exact: true })
+    .click()
+  await page.waitForURL('https://checkout.stripe.com/**')
+  expect(starts).toBe(1)
+})
+
 test('checkout reports 12 requested versus 10 available, saves the suggested quantity and then opens Stripe', async ({
   page,
 }, info) => {
