@@ -206,13 +206,7 @@ export function ProductActions({
     </div>
   )
 }
-function Line({
-  item,
-  guestPending,
-}: {
-  item: CartLine
-  guestPending: boolean
-}) {
+function Line({ item }: { item: CartLine }) {
   const shopping = useCommerce(),
     [quantity, setQuantity] = useState(String(item.quantity))
   const quantityInputId = useId()
@@ -237,9 +231,7 @@ function Line({
       variantId: item.variantId,
       quantity,
     }
-    void (guestPending
-      ? shopping.setGuestQuantity(selection)
-      : shopping.setQuantity(selection))
+    void shopping.setQuantity(selection)
   }
   return (
     <article className="rounded-2xl border border-border bg-white p-4 sm:p-5">
@@ -346,9 +338,7 @@ function Line({
               className="min-h-11 px-2 text-sm font-bold text-red-700 disabled:opacity-50"
               disabled={shopping.busy}
               onClick={() => {
-                void (guestPending
-                  ? shopping.removeGuest(item.id)
-                  : shopping.remove(item.id))
+                void shopping.remove(item.id)
               }}
             >
               Remove item
@@ -359,17 +349,11 @@ function Line({
     </article>
   )
 }
-function Lines({
-  quote,
-  guestPending = false,
-}: {
-  quote: CartQuote
-  guestPending?: boolean
-}) {
+function Lines({ quote }: { quote: CartQuote }) {
   return (
     <div className="space-y-3">
       {quote.items.map((item) => (
-        <Line key={item.id} item={item} guestPending={guestPending} />
+        <Line key={item.id} item={item} />
       ))}
     </div>
   )
@@ -380,6 +364,22 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
   return (
     <div className="space-y-5">
       <ErrorMessage text={shopping.cartError} />
+      {shopping.guestMergeError && (
+        <div
+          role="alert"
+          className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+        >
+          <p>{shopping.guestMergeError}</p>
+          <button
+            type="button"
+            className="mt-2 min-h-11 font-bold text-primary"
+            disabled={shopping.busy || shopping.loading}
+            onClick={shopping.retryGuestMerge}
+          >
+            Retry adding previous items
+          </button>
+        </div>
+      )}
       {shopping.notice && (
         <p role="status" className="text-sm text-amber-800">
           {shopping.notice}
@@ -435,32 +435,6 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
             {fullPage && <CartContinue />}
           </aside>
         </div>
-      )}
-      {shopping.authenticated && Boolean(shopping.guest?.items.length) && (
-        <section className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <h2 className="font-bold">Guest items waiting to merge</h2>
-          <Lines quote={shopping.guest!} guestPending />
-          <div className="flex flex-wrap gap-3">
-            <button
-              className={actionClass}
-              disabled={shopping.busy}
-              onClick={() => {
-                void shopping.mergeGuest()
-              }}
-            >
-              Merge guest cart
-            </button>
-            <button
-              className="text-sm font-bold text-red-700"
-              disabled={shopping.busy}
-              onClick={() => {
-                void shopping.revokeGuest()
-              }}
-            >
-              Discard guest cart
-            </button>
-          </div>
-        </section>
       )}
       {!fullPage && <CartContinue />}
     </div>
@@ -609,7 +583,13 @@ function SavedProduct({
 
 function CartContinue() {
   const shopping = useCommerce()
-  if (!shopping.cart?.items.length || shopping.busy) return null
+  if (
+    !shopping.cart?.items.length ||
+    shopping.busy ||
+    shopping.loading ||
+    shopping.guestMergeError
+  )
+    return null
   return (
     <Link
       className={actionClass + ' w-full'}

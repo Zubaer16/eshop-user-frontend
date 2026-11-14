@@ -60,7 +60,7 @@ export function Checkout() {
   const cartBlocked =
     shopping.loading ||
     shopping.busy ||
-    Boolean(shopping.cartError || shopping.guest?.items.length)
+    Boolean(shopping.cartError || shopping.guestMergeError)
   const cartVersion =
     shopping.cart?.items
       .map((line) => [line.id, line.quantity, line.unitPriceMinor].join(':'))
