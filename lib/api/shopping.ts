@@ -24,6 +24,7 @@ export type Address = {
 }
 export type AddressInput = Omit<Address, 'id' | 'createdAt' | 'updatedAt'>
 export type CartLine = {
+  image?: import('./cart-preview').AddPreview['image']
   id: string
   productId: string
   variantId: string | null
@@ -151,8 +152,8 @@ export function validateSelection(value: CartSelection) {
       'Choose a canonical product, an explicit valid variant and 1–99 units.',
     )
   return {
-    productId: value.productId,
-    variantId: value.variantId,
+    productId: value.productId.toLowerCase(),
+    variantId: value.variantId?.toLowerCase() ?? null,
     quantity: value.quantity,
   }
 }
@@ -170,17 +171,6 @@ export function productSelection(
     productId: product.id,
     variantId: product.hasVariants ? variantId : null,
     quantity,
-  })
-}
-export function nextQuantity(quote: CartQuote, selection: CartSelection) {
-  const current = quote.items.find(
-    (line) =>
-      line.productId === selection.productId &&
-      line.variantId === selection.variantId,
-  )
-  return validateSelection({
-    ...selection,
-    quantity: (current?.quantity || 0) + selection.quantity,
   })
 }
 export function addressPayload(value: AddressInput, creating: boolean) {

@@ -4,7 +4,7 @@ import {
   readCart,
   readWishlist,
   productSelection,
-  nextQuantity,
+  validateSelection,
   addressPayload,
 } from '../lib/api/shopping.ts'
 const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -57,32 +57,19 @@ test('cart retains authoritative amounts and issues rather than inventing a paya
   ])
     assert.throws(() => readCart(value))
 })
-test('adding uses fresh exact product/variant identity and a bounded absolute quantity for safe retries', () => {
-  const variant = id(5),
-    selection = { productId: id(2), variantId: variant, quantity: 3 }
-  const current = quote({
-    items: [line(), line({ id: id(6), variantId: variant, quantity: 4 })],
-  })
-  assert.deepEqual(nextQuantity(current, selection), {
-    ...selection,
-    quantity: 7,
-  })
-  assert.throws(() =>
-    nextQuantity(quote({ items: [line({ quantity: 99 })] }), {
-      productId: id(2),
-      variantId: null,
-      quantity: 1,
-    }),
-  )
-  const product = { id: id(2), hasVariants: true, variants: [{ id: variant }] }
-  assert.throws(() => productSelection(product, '', 1))
-  assert.throws(() => productSelection(product, id(9), 1))
-  assert.deepEqual(productSelection(product, variant, 1), {
+test('product selection preserves canonical product/variant IDs and bounded quantities', () => {
+  const product = { id: id(2), hasVariants: true, variants: [{ id: id(3) }] }
+  assert.deepEqual(productSelection(product, id(3), 2), {
     productId: id(2),
-    variantId: variant,
-    quantity: 1,
+    variantId: id(3),
+    quantity: 2,
   })
+  assert.throws(() => productSelection(product, '', 1))
+  assert.throws(() =>
+    validateSelection({ productId: id(2), variantId: null, quantity: 100 }),
+  )
 })
+
 test('address payload allowlists private fields and does not unset an existing default implicitly', () => {
   const address = {
     label: ' Home ',

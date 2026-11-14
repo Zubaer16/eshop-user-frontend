@@ -3,6 +3,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { ArrowRight, Box, Heart, Plus } from 'lucide-react'
 import { imageUrl, money, type Product } from '@/lib/api/catalog'
 import { additionPreview } from '@/lib/api/cart-preview'
@@ -18,7 +19,21 @@ export function ProductCard({
   product: Product | StoreProductCard
   priority?: boolean
 }) {
-  const shopping = useCommerce()
+  const shopping = useCommerce(
+    useShallow((state) => ({
+      add: state.add,
+      save: state.save,
+      canAdd: state.canAdd,
+      busy: state.busy,
+      wishError: state.wishError,
+      cartError: state.cartError,
+      authenticated: state.authenticated,
+      loading: state.loading,
+      saved:
+        state.wishlist?.items.some((item) => item.productId === product.id) ||
+        false,
+    })),
+  )
   const { categories } = useCatalog()
   const [error, setError] = useState('')
   const [failedImage, setFailedImage] = useState('')
@@ -32,9 +47,7 @@ export function ProductCard({
     'purchasable' in product
       ? product.purchasable
       : product.availableQuantity > 0
-  const saved =
-    shopping.wishlist?.items.some((item) => item.productId === product.id) ||
-    false
+  const saved = shopping.saved
   const href = '/product/' + encodeURIComponent(product.slug)
 
   async function add() {
@@ -144,12 +157,7 @@ export function ProductCard({
         ) : (
           <button
             type="button"
-            disabled={
-              !available ||
-              shopping.loading ||
-              !shopping.canAdd ||
-              Boolean(shopping.cartError)
-            }
+            disabled={!available || !shopping.canAdd}
             onClick={() => void add()}
             className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-[#dce5fa] bg-[#f2f6ff] text-xs font-bold text-primary transition hover:border-primary hover:bg-primary hover:text-white disabled:opacity-40"
           >

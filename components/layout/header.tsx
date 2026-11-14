@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   ArrowRight,
@@ -79,7 +80,16 @@ function Counter({ count }: { count: number }) {
 
 export function Header() {
   const store = useStoreConfiguration()
-  const shopping = useCommerce()
+  const shopping = useCommerce(
+    useShallow((state) => {
+      return {
+        setCartOpen: state.setCartOpen,
+        cartCount:
+          state.cart?.items.reduce((sum, item) => sum + item.quantity, 0) || 0,
+        wishCount: state.wishlist?.count || 0,
+      }
+    }),
+  )
   const { categories: catalogCategories } = useCatalog()
   const categories = catalogCategories
     .filter((c) => c.active && c.parentId === null)
@@ -96,19 +106,7 @@ export function Header() {
   const menuRef = useRef<HTMLDivElement>(null)
   const categoryTriggerRef = useRef<HTMLButtonElement>(null)
   const t = dictionary()
-  const optimisticCount =
-    shopping.pending?.action === 'add' && !shopping.busy
-      ? 0
-      : shopping.optimisticAdds.reduce(
-          (sum, row) => sum + row.selection.quantity,
-          0,
-        )
-  const cartCount =
-    !shopping.loading && !shopping.cartError
-      ? (shopping.cart?.items.reduce((sum, item) => sum + item.quantity, 0) ||
-          0) + optimisticCount
-      : null
-  const wishCount = shopping.wishlist?.count || 0
+  const { cartCount, wishCount } = shopping
   const links = [
     { href: '/shop', label: t.shop },
     { href: '/categories', label: t.categories },

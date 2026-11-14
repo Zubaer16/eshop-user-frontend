@@ -14,7 +14,6 @@ export type Totals = {
 }
 export type Estimate = Totals &
   Selection & {
-    cartId: string
     estimatedTotalMinor: number
     quotedAt: string
     deliveryEtaNote: string

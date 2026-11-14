@@ -2,6 +2,7 @@
 'use client'
 import Link from 'next/link'
 import { useEffect, useId, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import {
   Sheet,
   SheetContent,
@@ -17,7 +18,7 @@ import {
   ShoppingBag,
 } from 'lucide-react'
 import { usePublicProduct } from '@/hooks/use-public-product'
-import { additionPreview, estimateAdditions } from '@/lib/api/cart-preview'
+import { additionPreview } from '@/lib/api/cart-preview'
 import { ProductCard } from '@/components/store/product-card'
 import { money, imageUrl } from '@/lib/api/catalog'
 import {
@@ -46,10 +47,19 @@ export function SaveProductButton({
 }: {
   product: Pick<Product, 'id' | 'slug'>
 }) {
-  const shopping = useCommerce(),
-    saved =
-      shopping.wishlist?.items.some((item) => item.productId === product.id) ||
-      false
+  const shopping = useCommerce(
+    useShallow((state) => ({
+      authenticated: state.authenticated,
+      loading: state.wishLoading,
+      busy: state.busy,
+      wishError: state.wishError,
+      save: state.save,
+      saved:
+        state.wishlist?.items.some((item) => item.productId === product.id) ||
+        false,
+    })),
+  )
+  const saved = shopping.saved
   return shopping.authenticated ? (
     <button
       type="button"
@@ -84,8 +94,18 @@ export function ProductActions({
   unavailable?: boolean
   compact?: boolean
 }) {
-  const shopping = useCommerce(),
-    [quantity, setQuantity] = useState(1),
+  const shopping = useCommerce(
+    useShallow((state) => ({
+      add: state.add,
+      canAdd: state.canAdd,
+      busy: state.busy,
+      cartError: state.cartError,
+      wishError: state.wishError,
+      reload: state.reload,
+      setCartOpen: state.setCartOpen,
+    })),
+  )
+  const [quantity, setQuantity] = useState(1),
     [error, setError] = useState('')
   const variant = product.variants.find((item) => item.id === variantId),
     available = product.hasVariants
@@ -154,7 +174,6 @@ export function ProductActions({
           type="button"
           className={actionClass + ' w-full'}
           disabled={
-            shopping.loading ||
             !shopping.canAdd ||
             !available ||
             unavailable ||
@@ -178,15 +197,6 @@ export function ProductActions({
           Refresh cart and saved items
         </button>
       )}
-      {shopping.pending && !shopping.busy && (
-        <Link
-          href="/cart"
-          className="block text-sm font-bold text-primary"
-          onClick={() => shopping.setCartOpen(false)}
-        >
-          Review unconfirmed cart change
-        </Link>
-      )}
       {!compact && (
         <p className="text-xs text-muted">
           Prices and stock are confirmed at checkout. Adding items does not
@@ -206,20 +216,11 @@ function Line({
   const shopping = useCommerce(),
     [quantity, setQuantity] = useState(String(item.quantity))
   const quantityInputId = useId()
-  const visual = usePublicProduct(
-    item.productId,
-    item.title,
-    undefined,
-    item.status !== 'UNPUBLISHED',
-  )
-  const src = imageUrl(visual.product?.gallery[0]?.url)
+  const src = imageUrl(item.image?.url)
   useEffect(() => {
     setQuantity(String(item.quantity))
   }, [item.quantity])
-  const quantityLocked =
-    shopping.loading ||
-    (shopping.busy && !shopping.quantitySaving) ||
-    Boolean(shopping.pending && !shopping.busy)
+  const quantityLocked = shopping.loading || shopping.busy
   const enteredQuantity = Number(quantity)
   const stepQuantity =
     Number.isInteger(enteredQuantity) &&
@@ -243,10 +244,7 @@ function Line({
   return (
     <article className="rounded-2xl border border-border bg-white p-4 sm:p-5">
       <div className="flex gap-4 sm:gap-5">
-        <div
-          ref={visual.ref}
-          className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#f5f7fb] sm:size-28"
-        >
+        <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#f5f7fb] sm:size-28">
           {src ? (
             <img
               src={src}
@@ -264,9 +262,9 @@ function Line({
           <div className="flex items-start justify-between gap-3">
             <div>
               <h3 className="font-bold">{item.title}</h3>
-              <p className="mt-1 text-xs text-muted">
-                SKU: {item.sku || 'Unavailable'}
-              </p>
+              {item.sku && (
+                <p className="mt-1 text-xs text-muted">SKU: {item.sku}</p>
+              )}
               <p className="mt-1 text-xs text-muted">
                 {item.variantId
                   ? 'Selected variant retained'
@@ -346,7 +344,7 @@ function Line({
             <button
               type="button"
               className="min-h-11 px-2 text-sm font-bold text-red-700 disabled:opacity-50"
-              disabled={shopping.busy || Boolean(shopping.pending)}
+              disabled={shopping.busy}
               onClick={() => {
                 void (guestPending
                   ? shopping.removeGuest(item.id)
@@ -377,206 +375,24 @@ function Lines({
   )
 }
 export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
-  const shopping = useCommerce(),
-    quote = shopping.cart
-  const [previewError, setPreviewError] = useState('')
-  const additions = shopping.optimisticAdds
-  const uncertain = Boolean(
-    shopping.pending?.action === 'add' && !shopping.busy,
-  )
-  const estimate = estimateAdditions(quote, additions)
-  const grouped = [
-    ...additions
-      .reduce((groups, item) => {
-        const key =
-          item.selection.productId + ':' + (item.selection.variantId || '')
-        const existing = groups.get(key)
-        if (existing) existing.quantity += item.selection.quantity
-        else groups.set(key, { ...item, quantity: item.selection.quantity })
-        return groups
-      }, new Map<string, (typeof additions)[number] & { quantity: number }>())
-      .values(),
-  ]
-  const matching = (line: CartLine) =>
-    additions.some(
-      (row) =>
-        row.selection.productId === line.productId &&
-        row.selection.variantId === line.variantId,
-    )
-  const visibleQuote =
-    quote && additions.length
-      ? { ...quote, items: quote.items.filter((line) => !matching(line)) }
-      : quote
+  const shopping = useCommerce()
+  const quote = shopping.cart
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted">
-          {shopping.authenticated
-            ? 'Your account cart'
-            : 'Guest cart on this browser'}
-        </p>
-        <button
-          className="text-sm font-bold text-primary disabled:opacity-50"
-          disabled={shopping.busy}
-          onClick={shopping.reload}
-        >
-          Refresh cart
-        </button>
-      </div>
-      <ErrorMessage text={previewError || shopping.cartError} />
-      {shopping.busy && (
-        <p
-          role="status"
-          className="rounded-xl bg-blue-50 p-4 text-sm text-primary"
-        >
-          Saving your cart…
-        </p>
-      )}
-      {additions.length > 0 && (
-        <section aria-label="Cart additions syncing" className="space-y-3">
-          {grouped.map((item) => {
-            const base =
-              quote?.items.find(
-                (line) =>
-                  line.productId === item.selection.productId &&
-                  line.variantId === item.selection.variantId,
-              )?.quantity || 0
-            const src = imageUrl(item.preview.image?.url)
-            return (
-              <article
-                key={item.selection.productId + ':' + item.selection.variantId}
-                className="flex gap-4 rounded-2xl border border-blue-100 bg-white p-4"
-              >
-                {src && (
-                  <img
-                    src={src}
-                    srcSet={item.preview.image?.srcSet}
-                    sizes="96px"
-                    alt={item.preview.image?.alt || item.preview.title}
-                    width={80}
-                    height={80}
-                    className="size-20 rounded-xl bg-canvas object-contain"
-                  />
-                )}
-                <div className="min-w-0">
-                  <h2 className="break-words font-extrabold">
-                    {item.preview.title}
-                  </h2>
-                  <p className="mt-1 text-xs text-muted">
-                    {item.preview.sku ||
-                      (item.selection.variantId
-                        ? 'Selected variant'
-                        : 'Simple product')}
-                  </p>
-                  <p className="mt-2 text-sm font-bold">
-                    {uncertain
-                      ? 'Requested addition: +' + item.quantity
-                      : 'Quantity: ' + (base + item.quantity)}
-                  </p>
-                  <p className="mt-1 text-xs font-bold text-primary">
-                    {uncertain ? 'Confirmation needed' : 'Syncing…'}
-                  </p>
-                  <button
-                    type="button"
-                    aria-label={'Add one more ' + item.preview.title}
-                    disabled={
-                      !shopping.canAdd ||
-                      uncertain ||
-                      base + item.quantity >= 99
-                    }
-                    className="mt-3 rounded-lg border border-line px-3 py-2 text-xs font-bold text-primary disabled:opacity-40"
-                    onClick={() => {
-                      setPreviewError('')
-                      void shopping
-                        .add({ ...item.selection, quantity: 1 }, item.preview)
-                        .catch((error) =>
-                          setPreviewError(
-                            error instanceof Error
-                              ? error.message
-                              : 'Could not add another item.',
-                          ),
-                        )
-                    }}
-                  >
-                    +1
-                  </button>
-                </div>
-              </article>
-            )
-          })}
-          {!uncertain && (
-            <div className="rounded-2xl bg-blue-50 p-4 text-sm">
-              <div className="flex flex-wrap justify-between gap-3 font-extrabold">
-                <span>Estimated subtotal</span>
-                <span>
-                  {estimate.currency && estimate.subtotalMinor !== null
-                    ? money(estimate.subtotalMinor, estimate.currency)
-                    : 'Awaiting confirmation'}
-                </span>
-              </div>
-              <p className="mt-2 text-xs text-muted">
-                Prices and availability are confirmed at checkout.
-              </p>
-            </div>
-          )}
-        </section>
-      )}
+      <ErrorMessage text={shopping.cartError} />
       {shopping.notice && (
-        <p
-          role="status"
-          className="rounded-xl bg-blue-50 p-3 text-sm text-primary"
-        >
+        <p role="status" className="text-sm text-amber-800">
           {shopping.notice}
         </p>
       )}
-      {shopping.pending && !shopping.busy && (
-        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm">
-            A cart change is unconfirmed. Retry the same operation to check it
-            without adding twice.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <button
-              className={actionClass}
-              disabled={shopping.busy || shopping.loading}
-              onClick={() => {
-                void shopping.retry()
-              }}
-            >
-              Retry same cart change
-            </button>
-            <button
-              className="text-sm font-bold text-primary"
-              disabled={shopping.busy}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    'Refresh and reconcile the current cart first. Discard this local pending request?',
-                  )
-                )
-                  shopping.discardPending()
-              }}
-            >
-              Discard local request
-            </button>
-          </div>
-        </div>
-      )}
       {shopping.loading ? (
-        <p role="status" className="py-5 text-sm">
-          Loading your current cart…
-        </p>
-      ) : shopping.cartError && !quote ? (
-        <p className="text-sm text-muted">
-          Your cart could not be loaded. No sample items are substituted.
-        </p>
-      ) : additions.length && !visibleQuote?.items.length ? null : !visibleQuote
-          ?.items.length ? (
+        <p role="status">Loading your cart…</p>
+      ) : !quote?.items.length ? (
         <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-[#fbfcff] p-6 text-center">
           <ShoppingBag size={44} className="mb-5 text-primary" />
           <h2 className="font-bold">Your cart is empty</h2>
           <Link
-            className="mt-4 inline-block text-sm font-bold text-primary"
+            className="mt-4 text-sm font-bold text-primary"
             href="/shop"
             onClick={() => shopping.setCartOpen(false)}
           >
@@ -591,88 +407,61 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
               : 'space-y-5'
           }
         >
-          <Lines quote={visibleQuote!} />
-          {quote && (
-            <aside
-              hidden={additions.length > 0}
-              className="h-fit space-y-4 rounded-2xl border border-border bg-[#fbfcff] p-6"
+          <Lines quote={quote} />
+          <aside className="h-fit space-y-4 rounded-2xl border border-border bg-[#fbfcff] p-6">
+            <h2 className="text-lg font-extrabold">Order summary</h2>
+            <div className="flex justify-between font-bold">
+              <span>Estimated subtotal</span>
+              <span>
+                {quote.currency
+                  ? money(quote.subtotalMinor, quote.currency)
+                  : 'Unavailable'}
+              </span>
+            </div>
+            <p className="text-xs text-muted">
+              Final prices, stock, tax and shipping are confirmed at checkout.
+            </p>
+            <button
+              className="text-sm font-bold text-red-700 disabled:opacity-50"
+              disabled={shopping.busy}
+              onClick={() => {
+                if (window.confirm('Clear all items in this cart?'))
+                  void shopping.clear()
+              }}
             >
-              <h2 className="text-lg font-extrabold">Order summary</h2>
-              <div className="flex justify-between font-bold">
-                <span>Estimated subtotal</span>
-                <span>
-                  {quote.currency
-                    ? money(quote.subtotalMinor, quote.currency)
-                    : 'Unavailable'}
-                </span>
-              </div>
-              <p className="mt-3 text-xs text-muted">
-                Final prices and stock are confirmed at checkout. Tax/shipping
-                and reservations are calculated during checkout.
-              </p>
-              {quote.issues.length > 0 && (
-                <p role="status" className="mt-3 text-sm text-amber-800">
-                  Some items cannot currently be purchased. Review the line
-                  statuses.
-                </p>
-              )}
-              <button
-                className="mt-4 text-sm font-bold text-red-700 disabled:opacity-50"
-                disabled={shopping.busy || Boolean(shopping.pending)}
-                onClick={() => {
-                  if (window.confirm('Clear all items in this cart?'))
-                    void shopping.clear()
-                }}
-              >
-                Clear cart
-              </button>
-              {fullPage && <CartContinue />}
-            </aside>
-          )}
+              Clear cart
+            </button>
+            {fullPage && <CartContinue />}
+          </aside>
         </div>
       )}
-      {fullPage && additions.length > 0 && <CartContinue />}
-      {shopping.authenticated &&
-        shopping.guest &&
-        shopping.guest.items.length > 0 && (
-          <section className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-            <h2 className="font-bold">Guest items waiting to merge</h2>
-            <p className="text-sm">
-              Merge these browser items into the signed-in account, or
-              edit/remove conflicting items first. Nothing is silently
-              discarded.
-            </p>
-            <Lines quote={shopping.guest} guestPending />
-            <div className="flex flex-wrap gap-3">
-              <button
-                className={actionClass}
-                disabled={
-                  shopping.busy || shopping.loading || Boolean(shopping.pending)
-                }
-                onClick={() => {
-                  void shopping.mergeGuest()
-                }}
-              >
-                Merge guest cart
-              </button>
-              <button
-                className="text-sm font-bold text-red-700"
-                disabled={shopping.busy || Boolean(shopping.pending)}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      'Discard only the guest cart on this browser? Your account cart stays unchanged.',
-                    )
-                  )
-                    void shopping.revokeGuest()
-                }}
-              >
-                Discard guest cart
-              </button>
-            </div>
-          </section>
-        )}
-      {(!fullPage || !quote?.items.length) && <CartContinue />}
+      {shopping.authenticated && Boolean(shopping.guest?.items.length) && (
+        <section className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <h2 className="font-bold">Guest items waiting to merge</h2>
+          <Lines quote={shopping.guest!} guestPending />
+          <div className="flex flex-wrap gap-3">
+            <button
+              className={actionClass}
+              disabled={shopping.busy}
+              onClick={() => {
+                void shopping.mergeGuest()
+              }}
+            >
+              Merge guest cart
+            </button>
+            <button
+              className="text-sm font-bold text-red-700"
+              disabled={shopping.busy}
+              onClick={() => {
+                void shopping.revokeGuest()
+              }}
+            >
+              Discard guest cart
+            </button>
+          </div>
+        </section>
+      )}
+      {!fullPage && <CartContinue />}
     </div>
   )
 }
@@ -705,9 +494,7 @@ export function CartDrawer() {
         <div className="border-b border-slate-200 px-6 py-6">
           <SheetTitle className="text-xl font-black">Your cart</SheetTitle>
           <SheetDescription className="mt-2 text-xs text-muted">
-            {shopping.optimisticAdds.length
-              ? 'Syncing your items. Estimates may change before checkout.'
-              : 'Current server prices and stock; no reservation or payment yet.'}
+            Review your items before checkout.
           </SheetDescription>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -747,7 +534,7 @@ export function WishlistPage() {
       >
         Refresh saved items
       </button>
-      {shopping.loading || (!shopping.wishlist && !shopping.wishError) ? (
+      {shopping.wishLoading || (!shopping.wishlist && !shopping.wishError) ? (
         <p role="status">Loading saved items…</p>
       ) : (
         shopping.wishlist && (
@@ -821,42 +608,14 @@ function SavedProduct({
 
 function CartContinue() {
   const shopping = useCommerce()
+  if (!shopping.cart?.items.length || shopping.busy) return null
   return (
-    <>
-      {shopping.authenticated ? (
-        <div>
-          {shopping.busy ||
-          shopping.pending ||
-          shopping.optimisticAdds.length ? (
-            <button
-              type="button"
-              disabled
-              className={actionClass + ' w-full opacity-50'}
-            >
-              Continue to checkout
-            </button>
-          ) : (
-            <Link
-              href="/checkout"
-              className={actionClass + ' w-full'}
-              onClick={() => shopping.setCartOpen(false)}
-            >
-              Continue to checkout
-            </Link>
-          )}
-          <p className="mt-2 text-xs text-muted">
-            Resolve guest items and unconfirmed changes before reserving stock.
-          </p>
-        </div>
-      ) : (
-        <Link
-          className={actionClass + ' w-full'}
-          href="/sign-in?next=%2Fcart"
-          onClick={() => shopping.setCartOpen(false)}
-        >
-          Sign in to continue
-        </Link>
-      )}
-    </>
+    <Link
+      className={actionClass + ' w-full'}
+      href={shopping.authenticated ? '/checkout' : '/sign-in?next=%2Fcart'}
+      onClick={() => shopping.setCartOpen(false)}
+    >
+      {shopping.authenticated ? 'Continue to checkout' : 'Sign in to continue'}
+    </Link>
   )
 }

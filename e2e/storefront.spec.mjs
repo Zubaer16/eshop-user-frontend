@@ -228,6 +228,7 @@ const cart = {
   items: [
     {
       id: id(51),
+      image,
       productId: products[0].id,
       variantId: null,
       title: products[0].title,
@@ -285,126 +286,16 @@ test('server-rendered Shop does not duplicate its initial product-list request i
   expect(reads).toBe(0)
 })
 
-for (const authenticated of [false, true])
-  test(`${authenticated ? 'account' : 'guest'} optimistic Add shows item immediately, sends one atomic request and confirms in background`, async ({
-    page,
-    request,
-  }) => {
-    const real = await (
-      await request.get(
-        process.env.ESHOP_API_URL + '/v1/products/a5-hardcover-notebook',
-      )
-    ).json()
-    if (!authenticated) await page.setViewportSize({ width: 390, height: 844 })
-    await mock(page, { authenticated })
-    let adding = false,
-      release,
-      reads = 0,
-      writes = []
-    const gate = new Promise((resolve) => {
-      release = resolve
-    })
-    const confirmed = {
-      ...cart,
-      items: [
-        {
-          ...cart.items[0],
-          productId: real.id,
-          title: real.title,
-          sku: real.sku,
-          unitPriceMinor: real.priceMinor,
-          lineTotalMinor: real.priceMinor,
-          currency: real.currency,
-        },
-      ],
-      currency: real.currency,
-      subtotalMinor: real.priceMinor,
-    }
-    await page.route('**/v1/products/a5-hardcover-notebook', (route) =>
-      route.fulfill({ json: real }),
-    )
-    await page.route('**/v1/cart?**', (route) => {
-      if (adding) reads++
-      return route.fulfill({ json: emptyCart })
-    })
-    await page.route('**/v1/cart/items/add?**', async (route) => {
-      writes.push(route.request().postDataJSON())
-      await gate
-      await route.fulfill({ json: confirmed })
-    })
-    await page.route('**/api/cart/guest', async (route) => {
-      const data = route.request().postDataJSON()
-      if (adding && data.action === 'read') reads++
-      if (data.action === 'add') {
-        writes.push(data)
-        await gate
-      }
-      await route.fulfill({
-        json: {
-          guest: !authenticated,
-          cart: data.action === 'add' ? confirmed : emptyCart,
-        },
-      })
-    })
-    try {
-      await page.goto('/product/a5-hardcover-notebook')
-      const add = page
-        .getByRole('button', { name: 'Add to cart', exact: true })
-        .first()
-      await expect(add).toBeEnabled()
-      adding = true
-      await add.click()
-      const drawer = page.getByRole('dialog', { name: 'Your cart' })
-      await expect(drawer).toBeVisible({ timeout: 1000 })
-      await expect(
-        drawer.getByRole('heading', { name: real.title, exact: true }),
-      ).toBeVisible()
-      await expect(drawer.getByText('Syncing…', { exact: true })).toBeVisible()
-      await expect(
-        drawer.getByText('Estimated subtotal', { exact: true }),
-      ).toBeVisible()
-      await expect(
-        drawer.getByRole('button', { name: 'Refresh cart', exact: true }),
-      ).toBeDisabled()
-      if (!authenticated)
-        expect(
-          await page.evaluate(
-            () => document.documentElement.scrollWidth <= innerWidth,
-          ),
-        ).toBe(true)
-      if (authenticated)
-        await expect(
-          drawer.getByRole('button', {
-            name: 'Continue to checkout',
-            exact: true,
-          }),
-        ).toBeDisabled()
-      await expect.poll(() => writes.length).toBe(1)
-      expect(writes[0]).toMatchObject({
-        productId: real.id,
-        variantId: null,
-        quantity: 1,
-      })
-      expect(writes[0].requestId).toMatch(/^[a-f0-9-]{36}$/)
-      expect(reads).toBe(0)
-      release()
-      await expect(
-        drawer.getByRole('button', { name: 'Refresh cart', exact: true }),
-      ).toBeEnabled()
-      await expect(
-        drawer.getByRole('region', { name: 'Cart additions syncing' }),
-      ).toHaveCount(0)
-      expect(writes.length).toBe(1)
-    } finally {
-      release()
-      await page.unrouteAll({ behavior: 'wait' })
-    }
-  })
-
 async function mock(
   page,
-  { authenticated = false, configured = false, singleBanner = false } = {},
+  {
+    authenticated = false,
+    configured = false,
+    singleBanner = false,
+    initialCart = null,
+  } = {},
 ) {
+  if (initialCart) await seedLocalCart(page, authenticated, initialCart)
   await page.route('https://media.example.test/**', (route) =>
     route.fulfill({
       contentType: 'image/svg+xml',
@@ -423,9 +314,6 @@ async function mock(
           }
         : { authenticated: false },
     }),
-  )
-  await page.route('**/api/cart/guest', (route) =>
-    route.fulfill({ json: { guest: false, cart: emptyCart } }),
   )
   await page.route('**/v1/**', async (route) => {
     const url = new URL(route.request().url())
@@ -476,7 +364,6 @@ async function mock(
     else if (path.startsWith('/v1/products/'))
       data = products.find((p) => p.slug === path.split('/').at(-1))
     else if (path === '/v1/auth/me') data = user
-    else if (path === '/v1/cart') data = cart
     else if (path === '/v1/wishlist')
       data = {
         items: [
@@ -634,7 +521,7 @@ for (const path of ['/account', '/checkout', '/wishlist', '/cart']) {
   test(`authenticated ${path} preserves its API data inside the restored layout`, async ({
     page,
   }, info) => {
-    await mock(page, { authenticated: true })
+    await mock(page, { authenticated: true, initialCart: cart })
     await page.goto(path)
     if (path === '/account') {
       await expect(
@@ -708,9 +595,6 @@ for (const width of [390, 1440]) {
         json: { message: 'No session in read-only storefront test' },
       }),
     )
-    await page.route('**/api/cart/guest', (route) =>
-      route.fulfill({ json: { guest: false, cart: emptyCart } }),
-    )
     await page.route('**/v1/**', (route) =>
       route.request().method() === 'GET'
         ? page.request
@@ -764,66 +648,6 @@ for (const width of [390, 1440]) {
     await page.unrouteAll({ behavior: 'wait' })
   })
 }
-
-test('product options and quantity keep canonical identity and reject a failed write without optimistic success', async ({
-  page,
-  request,
-}, info) => {
-  const productResponse = await request.get(
-    process.env.ESHOP_API_URL + '/v1/products/non-slip-yoga-mat',
-  )
-  expect(productResponse.status()).toBe(200)
-  const real = await productResponse.json()
-  const variant = {
-    id: id(90),
-    productId: real.id,
-    sku: 'CONTROLLED-L-BLUE',
-    options: { size: 'Large', color: 'Blue' },
-    priceMinor: 2499,
-    stockOnHand: 10,
-    available: true,
-  }
-  await mock(page, { authenticated: true })
-  await page.route('**/v1/products/non-slip-yoga-mat', (route) =>
-    route.fulfill({
-      json: { ...real, hasVariants: true, variants: [variant] },
-    }),
-  )
-  await page.goto('/product/non-slip-yoga-mat')
-  const group = page.getByRole('group', { name: 'Size / color', exact: true })
-  await expect(group).toBeVisible()
-  const add = page
-    .getByRole('button', { name: 'Add to cart', exact: true })
-    .first()
-  await expect(add).toBeDisabled()
-  const option = group.getByRole('button', { name: /Large \/ Blue/ })
-  await option.click()
-  await expect(option).toHaveAttribute('aria-pressed', 'true')
-  await page.getByRole('button', { name: 'Increase quantity' }).click()
-  await expect(
-    page.getByRole('spinbutton', { name: 'Quantity', exact: true }),
-  ).toHaveValue('2')
-  const write = page.waitForRequest(
-    (r) =>
-      r.method() === 'POST' &&
-      new URL(r.url()).pathname === '/v1/cart/items/add',
-  )
-  await add.click()
-  const mutation = await write
-  expect(mutation.postDataJSON()).toMatchObject({
-    productId: real.id,
-    variantId: variant.id,
-    quantity: 2,
-  })
-  expect(mutation.postDataJSON().requestId).toMatch(/^[a-f0-9-]{36}$/)
-  await expect(
-    page.getByRole('dialog', { name: 'Your cart' }).getByRole('alert'),
-  ).toContainText('Controlled write blocked')
-  await page.screenshot({
-    path: info.outputPath('product-options.png'),
-    fullPage: true,
-  })
-})
 
 for (const register of [false, true]) {
   test(`${register ? 'registration' : 'sign-in'} uses the storefront design and the real session contract`, async ({
@@ -913,76 +737,6 @@ test('catalog failure shows recovery UI without substituting sample products', a
   await expect(page.locator('main article')).toHaveCount(0)
 })
 
-test('homepage Add needs no product lookup or cart read before its atomic write', async ({
-  page,
-}) => {
-  await mock(page)
-  let adding = false,
-    lookups = 0,
-    reads = 0,
-    writes = 0,
-    release
-  const gate = new Promise((resolve) => {
-    release = resolve
-  })
-  page.on('request', (request) => {
-    const path = new URL(request.url()).pathname
-    if (adding && path.startsWith('/v1/products/')) lookups++
-  })
-  await page.route('**/api/cart/guest', async (route) => {
-    const data = route.request().postDataJSON()
-    if (adding && data.action === 'read') reads++
-    if (data.action === 'add') {
-      writes++
-      await gate
-      return route.fulfill({ status: 409, json: { message: 'Stock changed' } })
-    }
-    return route.fulfill({ json: { guest: false, cart: emptyCart } })
-  })
-  try {
-    await openControlled(page, '/')
-    const add = page
-      .locator('#collection-panel article')
-      .first()
-      .getByRole('button', { name: 'Add to cart', exact: true })
-    await expect(add).toBeEnabled()
-    adding = true
-    await add.click()
-    const drawer = page.getByRole('dialog', { name: 'Your cart' })
-    await expect(
-      drawer.getByText('Estimated subtotal', { exact: true }),
-    ).toBeVisible()
-    await expect(
-      drawer.getByRole('heading', { name: products[0].title, exact: true }),
-    ).toBeVisible()
-    await expect.poll(() => writes).toBe(1)
-    expect(reads).toBe(0)
-    expect(lookups).toBe(0)
-    const more = drawer.getByRole('button', {
-      name: 'Add one more ' + products[0].title,
-      exact: true,
-    })
-    await more.click()
-    await more.click()
-    await expect(drawer.getByText('Quantity: 3', { exact: true })).toBeVisible()
-    release()
-    await expect(drawer.getByRole('alert')).toContainText('Stock changed')
-    await expect(
-      drawer.getByText('Estimated subtotal', { exact: true }),
-    ).toHaveCount(0)
-    await expect(
-      drawer.getByRole('region', { name: 'Cart additions syncing' }),
-    ).toHaveCount(0)
-    await expect(
-      drawer.getByRole('button', { name: 'Retry same cart change' }),
-    ).toHaveCount(0)
-    expect(writes).toBe(1)
-  } finally {
-    release()
-    await page.unrouteAll({ behavior: 'wait' })
-  }
-})
-
 function confirmedCart(quantity) {
   return {
     ...cart,
@@ -997,362 +751,39 @@ function confirmedCart(quantity) {
   }
 }
 
-test('rapid additions batch behind the in-flight add and a closed drawer stays closed', async ({
-  page,
-}, info) => {
-  await mock(page, { authenticated: true })
-  let release,
-    serverQuantity = 0
-  const gate = new Promise((resolve) => {
-    release = resolve
-  })
-  const writes = []
-  await page.route('**/v1/cart?**', (route) =>
-    route.fulfill({ json: emptyCart }),
+async function seedLocalCart(page, authenticated, quote) {
+  await page.addInitScript(
+    ({ key, quote }) => {
+      if (localStorage.getItem(key) === null)
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            version: 1,
+            cart: {
+              ...quote,
+              stockChecked: false,
+              items: quote.items.map((item) => ({
+                ...item,
+                availableQuantity: null,
+              })),
+            },
+          }),
+        )
+    },
+    { key: 'eshop-cart-v1:' + (authenticated ? user.id : 'guest'), quote },
   )
-  await page.route('**/v1/cart/items/add?**', async (route) => {
-    const body = route.request().postDataJSON()
-    writes.push(body)
-    if (writes.length === 1) await gate
-    serverQuantity += body.quantity
-    await route.fulfill({ json: confirmedCart(serverQuantity) })
-  })
-  try {
-    await openControlled(page, '/')
-    await page
-      .locator('#collection-panel article')
-      .first()
-      .getByRole('button', { name: 'Add to cart', exact: true })
-      .click()
-    const drawer = page.getByRole('dialog', { name: 'Your cart' })
-    await expect.poll(() => writes.length).toBe(1)
-    const more = drawer.getByRole('button', {
-      name: 'Add one more ' + products[0].title,
-      exact: true,
-    })
-    await more.click()
-    await more.click()
-    await expect(drawer.getByText('Quantity: 3', { exact: true })).toBeVisible()
-    expect(writes.length).toBe(1)
-    await page.screenshot({ path: info.outputPath('optimistic-cart.png') })
-    await drawer
-      .getByRole('button', { name: 'Close panel', exact: true })
-      .click()
-    release()
-    await expect.poll(() => writes.length).toBe(2)
-    await expect(page.getByRole('dialog', { name: 'Your cart' })).toHaveCount(0)
-    await page
-      .getByRole('button', { name: 'Open cart, 3 items', exact: true })
-      .click()
-    await expect(
-      page.getByRole('region', { name: 'Cart additions syncing' }),
-    ).toHaveCount(0)
-    await expect(
-      page.getByLabel('Quantity for ' + products[0].sku, { exact: true }),
-    ).toHaveValue('3')
-    expect(writes.map((body) => body.quantity)).toEqual([1, 2])
-    expect(writes[0].requestId).not.toBe(writes[1].requestId)
-  } finally {
-    release()
-    await page.unrouteAll({ behavior: 'wait' })
-  }
-})
-
-test('uncertain Add pauses and explicit retry reuses the request ID without double-counting', async ({
-  page,
-}) => {
-  await mock(page, { authenticated: true })
-  const writes = []
-  let applied = false
-  await page.route('**/v1/cart?**', (route) =>
-    route.fulfill({ json: applied ? confirmedCart(1) : emptyCart }),
-  )
-  await page.route('**/v1/cart/items/add?**', (route) => {
-    writes.push(route.request().postDataJSON())
-    applied = true
-    return route.fulfill(
-      writes.length === 1
-        ? { status: 503, json: { message: 'Uncertain response' } }
-        : { json: confirmedCart(1) },
-    )
-  })
-  await openControlled(page, '/')
-  await page
-    .locator('#collection-panel article')
-    .first()
-    .getByRole('button', { name: 'Add to cart', exact: true })
-    .click()
-  const drawer = page.getByRole('dialog', { name: 'Your cart' })
-  const retry = drawer.getByRole('button', {
-    name: 'Retry same cart change',
-    exact: true,
-  })
-  await expect(retry).toBeEnabled()
-  await expect(
-    drawer.getByText('Confirmation needed', { exact: true }),
-  ).toBeVisible()
-  expect(writes.length).toBe(1)
-  await expect(
-    drawer.getByText('Estimated subtotal', { exact: true }),
-  ).toHaveCount(0)
-  await drawer
-    .getByRole('button', { name: 'Refresh cart', exact: true })
-    .click()
-  await expect(
-    page.locator('header button[aria-label="Open cart, 1 items"]'),
-  ).toHaveCount(1)
-  await expect(retry).toBeEnabled()
-  await retry.click()
-  await expect(
-    drawer.getByRole('button', { name: 'Refresh cart', exact: true }),
-  ).toBeEnabled()
-  await expect(
-    drawer.getByRole('region', { name: 'Cart additions syncing' }),
-  ).toHaveCount(0)
-  expect(writes).toHaveLength(2)
-  expect(writes[1]).toEqual(writes[0])
-  await expect(
-    page.getByLabel('Quantity for ' + products[0].sku, { exact: true }),
-  ).toHaveValue('1')
-})
-
-test('account switch removes optimistic data and cancels unsent additions', async ({
-  page,
-}) => {
-  await mock(page, { authenticated: true })
-  let release,
-    writes = 0
-  const gate = new Promise((resolve) => {
-    release = resolve
-  })
-  await page.route('**/v1/cart?**', (route) =>
-    route.fulfill({ json: emptyCart }),
-  )
-  await page.route('**/v1/cart/items/add?**', async (route) => {
-    writes++
-    await gate
-    await route.fulfill({ json: confirmedCart(1) }).catch(() => {})
-  })
-  try {
-    await openControlled(page, '/')
-    await page
-      .locator('#collection-panel article')
-      .first()
-      .getByRole('button', { name: 'Add to cart', exact: true })
-      .click()
-    const drawer = page.getByRole('dialog', { name: 'Your cart' })
-    await expect.poll(() => writes).toBe(1)
-    await drawer
-      .getByRole('button', {
-        name: 'Add one more ' + products[0].title,
-        exact: true,
-      })
-      .click()
-    await page.evaluate(() => {
-      const channel = new BroadcastChannel('eshop-auth-customer')
-      channel.postMessage({ type: 'logout', source: 'controlled-other-tab' })
-      channel.close()
-    })
-    await expect(drawer).toHaveCount(0)
-    await page
-      .getByRole('button', { name: 'Open cart, 0 items', exact: true })
-      .click()
-    await expect(
-      drawer.getByText('Guest cart on this browser', { exact: true }),
-    ).toBeVisible()
-    await expect(
-      drawer.getByRole('region', { name: 'Cart additions syncing' }),
-    ).toHaveCount(0)
-    release()
-    await expect(
-      drawer.getByText('Your cart is empty', { exact: true }),
-    ).toBeVisible()
-    expect(writes).toBe(1)
-  } finally {
-    release()
-    await page.unrouteAll({ behavior: 'wait' })
-  }
-})
-
-for (const authenticated of [false, true])
-  test(`${authenticated ? 'account' : 'guest'} quantity autosaves, shows totals immediately and keeps latest edits during a slow write`, async ({
-    page,
-  }, info) => {
-    if (!authenticated) await page.setViewportSize({ width: 390, height: 844 })
-    await mock(page, { authenticated })
-    let release
-    const gate = new Promise((resolve) => {
-      release = resolve
-    })
-    const writes = []
-    const respond = async (route, body) => {
-      writes.push(body)
-      if (writes.length === 1) await gate
-      return confirmedCart(body.quantity)
-    }
-    await page.route('**/v1/cart/items?**', async (route) => {
-      await route.fulfill({
-        json: await respond(route, route.request().postDataJSON()),
-      })
-    })
-    await page.route('**/api/cart/guest', async (route) => {
-      const data = route.request().postDataJSON()
-      await route.fulfill({
-        json: {
-          guest: !authenticated,
-          cart: data.action === 'set' ? await respond(route, data) : cart,
-        },
-      })
-    })
-    try {
-      await page.goto('/cart')
-      const input = page.getByLabel('Quantity for ' + products[0].sku, {
-        exact: true,
-      })
-      await expect(input).toHaveValue('1')
-      await expect(
-        page.getByRole('button', { name: 'Update quantity', exact: true }),
-      ).toHaveCount(0)
-      const decrease = page.getByRole('button', {
-        name: 'Decrease quantity for ' + products[0].sku,
-        exact: true,
-      })
-      const increase = page.getByRole('button', {
-        name: 'Increase quantity for ' + products[0].sku,
-        exact: true,
-      })
-      await expect(decrease).toBeDisabled()
-      await increase.click()
-      await expect(input).toHaveValue('2')
-      await expect(
-        page.getByRole('button', { name: 'Open cart, 2 items', exact: true }),
-      ).toHaveCount(1)
-      const summary = page.locator('aside').filter({ hasText: 'Order summary' })
-      await expect(summary).toContainText(
-        '$' + ((products[0].priceMinor * 2) / 100).toFixed(2),
-      )
-      await expect.poll(() => writes.length).toBe(1)
-      await expect(input).toBeEnabled()
-      await input.fill('99')
-      await expect(increase).toBeDisabled()
-      await input.fill('6')
-      await decrease.click()
-      await expect(input).toHaveValue('5')
-      await expect(summary).toContainText(
-        '$' + ((products[0].priceMinor * 5) / 100).toFixed(2),
-      )
-      expect(writes).toHaveLength(1)
-      release()
-      await expect.poll(() => writes.length).toBe(2)
-      await expect(input).toHaveValue('5')
-      await expect(
-        page.getByRole('button', { name: 'Refresh cart', exact: true }),
-      ).toBeEnabled()
-      expect(writes.map((body) => body.quantity)).toEqual([2, 5])
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-      ).toBe(true)
-      await page.screenshot({ path: info.outputPath('quantity-controls.png') })
-    } finally {
-      release()
-      await page.unrouteAll({ behavior: 'wait' })
-    }
-  })
-
-test('failed quantity save restores the confirmed total and leaves the input usable', async ({
-  page,
-}) => {
-  await mock(page, { authenticated: true })
-  await page.route('**/v1/cart/items?**', (route) =>
-    route.fulfill({ status: 409, json: { message: 'Cart edit rejected' } }),
-  )
-  await page.goto('/cart')
-  const input = page.getByLabel('Quantity for ' + products[0].sku, {
-    exact: true,
-  })
-  await expect(input).toHaveValue('1')
-  await input.fill('4')
-  await expect(
-    page.getByText('Cart edit rejected', { exact: false }),
-  ).toBeVisible()
-  await expect(input).toHaveValue('1')
-  await expect(input).toBeEnabled()
-})
-
-test('uncertain quantity saves pause later edits and retry the frozen quantity before the latest queued target', async ({
-  page,
-}) => {
-  await mock(page, { authenticated: true })
-  let release
-  const gate = new Promise((resolve) => {
-    release = resolve
-  })
-  const writes = []
-  await page.route('**/v1/cart/items?**', async (route) => {
-    const body = route.request().postDataJSON()
-    writes.push(body)
-    if (writes.length === 1) {
-      await gate
-      return route.fulfill({
-        status: 503,
-        json: { message: 'Save unconfirmed' },
-      })
-    }
-    return route.fulfill({ json: confirmedCart(body.quantity) })
-  })
-  try {
-    await page.goto('/cart')
-    const input = page.getByLabel('Quantity for ' + products[0].sku, {
-      exact: true,
-    })
-    await expect(input).toHaveValue('1')
-    await input.fill('2')
-    await expect.poll(() => writes.length).toBe(1)
-    await input.fill('5')
-    release()
-    const retry = page.getByRole('button', {
-      name: 'Retry same cart change',
-      exact: true,
-    })
-    await expect(retry).toBeEnabled()
-    await expect(input).toBeDisabled()
-    expect(writes).toHaveLength(1)
-    await retry.click()
-    await expect.poll(() => writes.length).toBe(3)
-    expect(writes.map((body) => body.quantity)).toEqual([2, 2, 5])
-    await expect(input).toHaveValue('5')
-    await expect(input).toBeEnabled()
-    await expect(retry).toHaveCount(0)
-  } finally {
-    release()
-    await page.unrouteAll({ behavior: 'wait' })
-  }
-})
-
+}
 async function checkoutScenario(page, initialQuantity = 12) {
-  await mock(page, { authenticated: true })
-  let quantity = initialQuantity
-  const saved = []
-  const draft = () => ({
-    ...confirmedCart(quantity),
-    stockChecked: false,
-    items: quantity
-      ? [{ ...confirmedCart(quantity).items[0], availableQuantity: null }]
-      : [],
-    checkoutReady: quantity > 0,
+  await mock(page, {
+    authenticated: true,
+    initialCart: confirmedCart(initialQuantity),
   })
-  await page.route('**/v1/cart?**', (route) => route.fulfill({ json: draft() }))
-  await page.route('**/v1/cart/items?**', (route) => {
-    quantity = route.request().postDataJSON().quantity
-    saved.push(quantity)
-    return route.fulfill({ json: draft() })
-  })
-  await page.route('**/v1/cart/items/*?**', (route) => {
-    quantity = 0
-    return route.fulfill({ json: draft() })
-  })
+  const quantity = () =>
+    page.evaluate(
+      (key) =>
+        JSON.parse(localStorage.getItem(key))?.cart.items[0]?.quantity || 0,
+      'eshop-cart-v1:' + user.id,
+    )
   await page.route('**/v1/account/addresses', (route) =>
     route.fulfill({
       json: {
@@ -1374,12 +805,17 @@ async function checkoutScenario(page, initialQuantity = 12) {
       },
     }),
   )
-  await page.route('**/v1/checkout/delivery-options?**', (route) =>
-    route.fulfill({
+  await page.route('**/v1/checkout/delivery-options', (route) => {
+    const items = route.request().postDataJSON().items
+    const subtotalMinor = items.reduce(
+      (sum, item) => sum + item.quantity * products[0].priceMinor,
+      0,
+    )
+    return route.fulfill({
       json: {
         countryCode: 'US',
         currency: 'USD',
-        subtotalMinor: quantity * products[0].priceMinor,
+        subtotalMinor,
         discountMinor: 0,
         options: [
           {
@@ -1387,13 +823,13 @@ async function checkoutScenario(page, initialQuantity = 12) {
             label: 'Standard',
             shippingMinor: 0,
             taxMinor: 0,
-            totalMinor: quantity * products[0].priceMinor,
+            totalMinor: subtotalMinor,
             etaNote: '3 days',
           },
         ],
       },
-    }),
-  )
+    })
+  })
   await page.route('https://checkout.stripe.com/**', (route) =>
     route.fulfill({
       contentType: 'text/html',
@@ -1401,8 +837,7 @@ async function checkoutScenario(page, initialQuantity = 12) {
     }),
   )
   return {
-    saved,
-    quantity: () => quantity,
+    quantity,
     shortage: (available) => ({
       code: 'INSUFFICIENT_STOCK',
       message: 'Stock changed',
@@ -1413,7 +848,7 @@ async function checkoutScenario(page, initialQuantity = 12) {
           variantId: null,
           title: products[0].title,
           sku: products[0].sku,
-          requestedQuantity: quantity,
+          requestedQuantity: initialQuantity,
           availableQuantity: available,
         },
       ],
@@ -1433,10 +868,10 @@ test('checkout reports 12 requested versus 10 available, saves the suggested qua
   await page.setViewportSize({ width: 390, height: 844 })
   const scenario = await checkoutScenario(page)
   const starts = []
-  await page.route('**/v1/checkout/start', (route) => {
+  await page.route('**/v1/checkout/start', async (route) => {
     starts.push(route.request().postDataJSON())
     return route.fulfill(
-      scenario.quantity() > 10
+      (await scenario.quantity()) > 10
         ? { status: 409, json: scenario.shortage(10) }
         : { json: scenario.session() },
     )
@@ -1459,7 +894,7 @@ test('checkout reports 12 requested versus 10 available, saves the suggested qua
   await page
     .getByRole('button', { name: 'Update quantity to 10', exact: true })
     .click()
-  await expect.poll(() => scenario.saved).toEqual([10])
+  await expect.poll(() => scenario.quantity()).toBe(10)
   await expect(pay).toBeEnabled()
   await pay.click()
   await page.waitForURL('https://checkout.stripe.com/**')
@@ -1502,7 +937,7 @@ test('uncertain checkout retries the same frozen request before redirecting to S
 }) => {
   const scenario = await checkoutScenario(page, 2)
   const starts = []
-  await page.route('**/v1/checkout/start', (route) => {
+  await page.route('**/v1/checkout/start', async (route) => {
     starts.push(route.request().postDataJSON())
     return route.fulfill(
       starts.length === 1
@@ -1547,47 +982,82 @@ function pendingCheckoutOrder(status = 'PENDING_PAYMENT') {
   }
 }
 
-test('Stripe success return waits for server payment confirmation', async ({
-  page,
-}) => {
-  await checkoutScenario(page, 2)
-  let paid = false,
-    checks = 0
-  await page.route('**/v1/orders/' + id(80), (route) =>
-    route.fulfill({ json: pendingCheckoutOrder() }),
-  )
-  await page.route('**/v1/payments/orders/' + id(80), (route) =>
-    route.fulfill({
-      json: {
-        checkoutStarted: true,
-        provider: 'STRIPE_TEST',
-        preparationStatus: 'AWAITING_WEBHOOK',
+for (const changedCart of [false, true])
+  test(`Stripe success clears the matching local cart and preserves ${changedCart ? 'later edits' : 'pending items until verified'}`, async ({
+    page,
+  }) => {
+    await checkoutScenario(page, 2)
+    let paid = false,
+      checks = 0
+    await page.route('**/v1/orders/' + id(80), (route) =>
+      route.fulfill({ json: pendingCheckoutOrder() }),
+    )
+    await page.route('**/v1/payments/orders/' + id(80), (route) =>
+      route.fulfill({
+        json: {
+          checkoutStarted: true,
+          provider: 'STRIPE_TEST',
+          preparationStatus: 'AWAITING_WEBHOOK',
+        },
+      }),
+    )
+    await page.route(
+      '**/v1/checkout/orders/' + id(80) + '/reconcile',
+      (route) => {
+        checks++
+        return route.fulfill({
+          json: pendingCheckoutOrder(paid ? 'PAID' : 'PENDING_PAYMENT'),
+        })
       },
-    }),
-  )
-  await page.route(
-    '**/v1/checkout/orders/' + id(80) + '/reconcile',
-    (route) => {
-      checks++
-      return route.fulfill({
-        json: pendingCheckoutOrder(paid ? 'PAID' : 'PENDING_PAYMENT'),
-      })
-    },
-  )
-  await page.goto('/checkout?order=' + id(80) + '&result=success')
-  await expect(page.getByText('PENDING_PAYMENT', { exact: true })).toBeVisible()
-  await expect(
-    page.getByText('Payment confirmed. Your order is placed.', { exact: true }),
-  ).toHaveCount(0)
-  paid = true
-  await page
-    .getByRole('button', { name: 'Refresh payment status', exact: true })
-    .click()
-  await expect(
-    page.getByText('Payment confirmed. Your order is placed.', { exact: true }),
-  ).toBeVisible()
-  expect(checks).toBeGreaterThanOrEqual(2)
-})
+    )
+    await page.goto('/checkout?order=' + id(80) + '&result=success')
+    await expect(
+      page.getByText('PENDING_PAYMENT', { exact: true }),
+    ).toBeVisible()
+    await page.evaluate(
+      ({ key, requestId, changedCart }) => {
+        const saved = JSON.parse(localStorage.getItem(key))
+        saved.checkout = {
+          requestId,
+          items: saved.cart.items.map(
+            ({ id, productId, variantId, quantity }) => ({
+              id,
+              productId,
+              variantId,
+              quantity,
+            }),
+          ),
+        }
+        if (changedCart) {
+          saved.cart.items[0].quantity = 3
+          saved.cart.items[0].lineTotalMinor = 5997
+          saved.cart.subtotalMinor = 5997
+        }
+        localStorage.setItem(key, JSON.stringify(saved))
+      },
+      { key: 'eshop-cart-v1:' + user.id, requestId: id(82), changedCart },
+    )
+    await expect(
+      page.getByText('Payment confirmed. Your order is placed.', {
+        exact: true,
+      }),
+    ).toHaveCount(0)
+    paid = true
+    await page
+      .getByRole('button', { name: 'Refresh payment status', exact: true })
+      .click()
+    await expect(
+      page.getByText('Payment confirmed. Your order is placed.', {
+        exact: true,
+      }),
+    ).toBeVisible()
+    expect(checks).toBeGreaterThanOrEqual(2)
+    const remaining = await page.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key)).cart.items,
+      'eshop-cart-v1:' + user.id,
+    )
+    expect(remaining).toHaveLength(changedCart ? 1 : 0)
+  })
 
 test('Stripe cancel return expires the server checkout before showing a cancelled order', async ({
   page,
@@ -1650,5 +1120,185 @@ test('an account change during checkout prevents the old Stripe redirect', async
   } finally {
     release()
     await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+for (const authenticated of [false, true]) {
+  test(`${authenticated ? 'account' : 'guest'} local cart adds immediately, accepts entry and plus/minus, and persists without any cart request`, async ({
+    page,
+  }, info) => {
+    await mock(page, { authenticated })
+    const requests = []
+    page.on('request', (request) => {
+      if (
+        /\/(?:v1\/(?:cart|guest-cart)|api\/cart)(?:[/?]|$)/.test(request.url())
+      )
+        requests.push(request.url())
+    })
+    await openControlled(page, '/')
+    await page
+      .getByRole('button', { name: 'Add to cart', exact: true })
+      .first()
+      .click()
+    const drawer = page.getByRole('dialog', { name: 'Your cart' })
+    const input = drawer.getByLabel('Quantity for ' + products[0].title, {
+      exact: true,
+    })
+    await expect(input).toHaveValue('1')
+    await expect(
+      drawer.getByText(/Checking your cart|Saving|Syncing/i),
+    ).toHaveCount(0)
+    await input.fill('12')
+    await expect(input).toHaveValue('12')
+    await drawer
+      .getByRole('button', {
+        name: 'Increase quantity for ' + products[0].title,
+        exact: true,
+      })
+      .click()
+    await expect(input).toHaveValue('13')
+    await drawer
+      .getByRole('button', {
+        name: 'Decrease quantity for ' + products[0].title,
+        exact: true,
+      })
+      .click()
+    await expect(input).toHaveValue('12')
+    await expect(
+      drawer.getByText('$239.88', { exact: true }).first(),
+    ).toBeVisible()
+    await expect(
+      drawer.getByRole('button', { name: 'Update quantity', exact: true }),
+    ).toHaveCount(0)
+    await page.screenshot({ path: info.outputPath('local-cart-quantity.png') })
+    await drawer
+      .getByRole('link', { name: 'Open full cart', exact: true })
+      .click()
+    await page.reload()
+    await expect(
+      page.getByLabel('Quantity for ' + products[0].title, { exact: true }),
+    ).toHaveValue('12')
+    await page.getByRole('button', { name: 'Remove item', exact: true }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Your cart is empty', exact: true }),
+    ).toBeVisible()
+    expect(requests).toEqual([])
+  })
+}
+
+test('local cart updates propagate to another tab without a network cart read', async ({
+  page,
+  context,
+}) => {
+  await mock(page, { authenticated: true, initialCart: cart })
+  await page.goto('/cart')
+  const other = await context.newPage()
+  await mock(other, { authenticated: true })
+  await other.goto('/cart')
+  const label = 'Quantity for ' + products[0].sku
+  await expect(other.getByLabel(label, { exact: true })).toHaveValue('1')
+  await page.getByLabel(label, { exact: true }).fill('5')
+  await expect(other.getByLabel(label, { exact: true })).toHaveValue('5')
+  await other.close()
+})
+
+test('storage quota failure retains subsequent local quantity edits in memory', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true, initialCart: cart })
+  await page.goto('/cart')
+  const quantity = page.getByLabel('Quantity for ' + products[0].sku, {
+    exact: true,
+  })
+  await expect(quantity).toHaveValue('1')
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith('eshop-cart-v1:'))
+        throw new DOMException('Storage is full', 'QuotaExceededError')
+      return original.call(this, key, value)
+    }
+  })
+  await quantity.fill('2')
+  await expect(
+    page.getByText(
+      'Browser storage is unavailable. Keep this tab open to retain your cart.',
+      { exact: true },
+    ),
+  ).toBeVisible()
+  await page
+    .getByRole('button', {
+      name: 'Increase quantity for ' + products[0].sku,
+      exact: true,
+    })
+    .click()
+  await expect(quantity).toHaveValue('3')
+  await expect(page.getByText('$59.97', { exact: true }).first()).toBeVisible()
+})
+
+test('checkout receipt waits for a concurrent cart edit and preserves its newer quantity', async ({
+  page,
+  context,
+}) => {
+  const scenario = await checkoutScenario(page, 2)
+  const other = await context.newPage()
+  await mock(other, { authenticated: true })
+  await other.goto('/cart')
+  const starts = []
+  await page.route('**/v1/checkout/start', (route) => {
+    starts.push(route.request().postDataJSON())
+    return route.fulfill({ json: scenario.session() })
+  })
+  await page.goto('/checkout')
+  const pay = page.getByRole('button', {
+    name: 'Continue to Stripe Checkout',
+    exact: true,
+  })
+  await expect(pay).toBeEnabled()
+  await other.evaluate(async () => {
+    let acquired
+    const held = new Promise((resolve) => {
+      acquired = resolve
+    })
+    const gate = new Promise((resolve) => {
+      window.releaseCartEdit = resolve
+    })
+    window.cartEdit = navigator.locks.request('eshop-local-cart', async () => {
+      acquired()
+      await gate
+    })
+    await held
+  })
+  try {
+    await pay.click()
+    await expect
+      .poll(() =>
+        page.evaluate(
+          async () =>
+            (await navigator.locks.query()).pending.filter(
+              (lock) => lock.name === 'eshop-local-cart',
+            ).length,
+        ),
+      )
+      .toBe(1)
+    expect(starts).toHaveLength(0)
+    await other.evaluate((key) => {
+      const saved = JSON.parse(localStorage.getItem(key))
+      saved.cart.items[0].quantity = 3
+      saved.cart.items[0].lineTotalMinor = 5997
+      saved.cart.subtotalMinor = 5997
+      localStorage.setItem(key, JSON.stringify(saved))
+      window.releaseCartEdit()
+    }, 'eshop-cart-v1:' + user.id)
+    await page.waitForURL('https://checkout.stripe.com/**')
+    expect(starts[0].items[0].quantity).toBe(2)
+    const retained = await other.evaluate(
+      (key) => JSON.parse(localStorage.getItem(key)).cart.items[0].quantity,
+      'eshop-cart-v1:' + user.id,
+    )
+    expect(retained).toBe(3)
+  } finally {
+    await other.evaluate(() => window.releaseCartEdit?.()).catch(() => {})
+    await other.close()
   }
 })

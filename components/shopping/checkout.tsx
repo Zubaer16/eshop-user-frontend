@@ -22,12 +22,14 @@ import {
   type Selection,
   type ShippingAddress,
 } from '@/lib/api/checkout'
-import { shoppingLock } from '@/lib/api/guest-cart-client'
+import { shoppingLock } from '@/lib/api/shopping-lock'
+import { checkoutItems } from '@/lib/stores/local-cart'
 import { useCommerce } from './commerce-provider'
 import { actionClass, inputClass, ErrorMessage } from './cart'
 
 type CheckoutIntent = Selection & {
   requestId: string
+  items: ReturnType<typeof checkoutItems>
   shippingAddress: ShippingAddress
 }
 
@@ -58,9 +60,7 @@ export function Checkout() {
   const cartBlocked =
     shopping.loading ||
     shopping.busy ||
-    Boolean(
-      shopping.pending || shopping.cartError || shopping.guest?.items.length,
-    )
+    Boolean(shopping.cartError || shopping.guest?.items.length)
   const cartVersion =
     shopping.cart?.items
       .map((line) => [line.id, line.quantity, line.unitPriceMinor].join(':'))
@@ -94,6 +94,9 @@ export function Checkout() {
       )
       guard()
     }
+    if (current.status === 'PAID')
+      await shopping.completeCheckout(current.requestId)
+    guard()
     setOrder(current)
     setPayment(prepared)
     return current
@@ -163,7 +166,11 @@ export function Checkout() {
     setOptions(null)
     void api
       .request<DeliveryOptions>('/v1/checkout/delivery-options', {
-        query: checkoutSelection(address.countryCode, '', appliedCoupon),
+        method: 'POST',
+        body: {
+          ...checkoutSelection(address.countryCode, '', appliedCoupon),
+          items: checkoutItems(shopping.cart),
+        },
         signal: controller.signal,
       })
       .then((result) => {
@@ -238,11 +245,12 @@ export function Checkout() {
   async function run(work: () => Promise<void>, lockCart = true) {
     if (writing.current) return
     writing.current = true
-    if (lockCart) shopping.setCheckoutBusy(true)
+    let finishCheckout = () => {}
     setBusy(true)
     setError('')
     setNotice('')
     try {
+      if (lockCart) finishCheckout = shopping.beginCheckout()
       const guarded = async () => {
         guard()
         await work()
@@ -273,11 +281,13 @@ export function Checkout() {
       }
     } finally {
       writing.current = false
-      if (lockCart) shopping.setCheckoutBusy(false)
+      finishCheckout()
       if (mounted.current) setBusy(false)
     }
   }
   async function start(value: CheckoutIntent) {
+    await shopping.rememberCheckout(value.requestId, value.items)
+    guard()
     const result = hostedCheckout(
       await api.request('/v1/checkout/start', {
         method: 'POST',
@@ -661,6 +671,7 @@ export function Checkout() {
                               appliedCoupon,
                             ),
                             requestId: crypto.randomUUID(),
+                            items: checkoutItems(shopping.cart),
                             shippingAddress: shippingSnapshot(address),
                           }
                           setIntent(value)
