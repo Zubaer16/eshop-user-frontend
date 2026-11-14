@@ -419,7 +419,8 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
               </span>
             </div>
             <p className="text-xs text-muted">
-              Final prices, stock, tax and shipping are confirmed at checkout.
+              Final prices, stock and delivery charges are confirmed at
+              checkout.
             </p>
             <button
               className="text-sm font-bold text-red-700 disabled:opacity-50"

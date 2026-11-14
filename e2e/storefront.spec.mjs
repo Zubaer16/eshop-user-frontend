@@ -882,6 +882,7 @@ test('checkout reports 12 requested versus 10 available, saves the suggested qua
     exact: true,
   })
   await expect(pay).toBeEnabled()
+  await expect(page.getByText('Tax', { exact: true })).toHaveCount(0)
   await pay.click()
   await expect(
     page.getByRole('region', { name: 'Stock availability' }),

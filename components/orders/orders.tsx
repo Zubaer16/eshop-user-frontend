@@ -125,7 +125,7 @@ export function OrderSnapshot({ order }: { order: OrderDetail }) {
           ['Merchandise', order.subtotalMinor],
           ['Discount', -order.discountMinor],
           ['Shipping', order.shippingMinor],
-          ['Tax', order.taxMinor],
+          ...(order.taxMinor > 0 ? [['Tax', order.taxMinor]] : []),
           ['Order total', order.totalMinor],
         ].map(([label, value]) => (
           <div className="flex justify-between" key={String(label)}>

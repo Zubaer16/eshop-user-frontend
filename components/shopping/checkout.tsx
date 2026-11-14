@@ -612,7 +612,25 @@ export function Checkout() {
                       Calculating delivery…
                     </p>
                   )}
-                  {options && (
+                  {options?.options.length === 1 ? (
+                    <div
+                      role="group"
+                      aria-label="Delivery service"
+                      className="space-y-2"
+                    >
+                      <p className="text-sm font-bold">Delivery service</p>
+                      <p className="rounded-xl border border-slate-200 px-3 py-3 text-sm">
+                        {options.options[0].label} ·{' '}
+                        {money(
+                          options.options[0].shippingMinor,
+                          options.currency,
+                        )}
+                        {options.options[0].etaNote && (
+                          <> · {options.options[0].etaNote}</>
+                        )}
+                      </p>
+                    </div>
+                  ) : options?.options.length ? (
                     <label className="block text-sm font-bold">
                       Delivery service
                       <select
@@ -634,7 +652,9 @@ export function Checkout() {
                         ))}
                       </select>
                     </label>
-                  )}
+                  ) : options ? (
+                    <ErrorMessage text="Delivery is unavailable for this destination. Choose another address or contact the store." />
+                  ) : null}
                   {intent ? (
                     <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
                       <p className="text-sm">
@@ -736,12 +756,6 @@ export function Checkout() {
                     <span>Shipping</span>
                     <strong>
                       {money(selectedDelivery.shippingMinor, options.currency)}
-                    </strong>
-                  </div>
-                  <div className="flex justify-between gap-4 text-sm">
-                    <span>Tax</span>
-                    <strong>
-                      {money(selectedDelivery.taxMinor, options.currency)}
                     </strong>
                   </div>
                   <div className="flex justify-between gap-4 border-t border-border pt-4 font-extrabold">
