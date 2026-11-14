@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { prefetchOrders } from '@/components/account/account-preload'
 import { Mail, PackageCheck, ShieldCheck, ShoppingBag } from 'lucide-react'
 import { Logo } from './logo'
 import { useStoreConfiguration } from '@/components/store/store-content'
@@ -70,7 +71,14 @@ export function Footer() {
               {store.operations?.showWishlist !== false && (
                 <Link href="/wishlist">Saved items</Link>
               )}
-              <Link href="/account/orders">Your orders</Link>
+              <Link
+                href="/account/orders"
+                onMouseEnter={prefetchOrders}
+                onFocus={prefetchOrders}
+                onTouchStart={prefetchOrders}
+              >
+                Your orders
+              </Link>
               <Link href="/track">Track your order</Link>
             </nav>
           </div>

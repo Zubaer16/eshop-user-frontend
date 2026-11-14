@@ -4,7 +4,7 @@ type Entry = { value?: unknown; expires: number; pending?: Promise<unknown> }
 // Public presentation data only. Private responses and writes never enter this cache.
 export function publicKey(route: string, query: Query = {}) {
   if (
-    !/^\/v1\/(?:categories|products(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)?|store\/(?:homepage|collections\/[a-z0-9]+(?:-[a-z0-9]+)*))$/.test(
+    !/^\/v1\/(?:categories|products(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)?|store\/(?:bootstrap|operations|homepage|collections\/[a-z0-9]+(?:-[a-z0-9]+)*))$/.test(
       route,
     )
   )

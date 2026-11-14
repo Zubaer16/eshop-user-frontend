@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { api } from '@/lib/api/client'
+import { api, accountData } from '@/lib/api/client'
 import {
   isOrderId,
   readOrderDetail,
@@ -17,6 +17,48 @@ type Bundle = {
   refunds: RefundRow[]
   tracking: Tracking
 }
+function checkedBundle(bundle: Bundle, id: string) {
+  readOrderDetail(bundle.order)
+  if (
+    !Array.isArray(bundle.returns) ||
+    !Array.isArray(bundle.replacements) ||
+    !Array.isArray(bundle.refunds) ||
+    bundle.tracking.orderId !== id
+  )
+    throw new Error('Invalid order ledger response.')
+  return bundle
+}
+function cachedBundle(id: string): Bundle | null {
+  const route = '/v1/orders/' + id
+  const bundle = {
+    order: accountData.peek<OrderDetail>(route, {}, true),
+    returns: accountData.peek<ReturnRow[]>(route + '/returns', {}, true),
+    replacements: accountData.peek<ReplacementRow[]>(
+      route + '/replacements',
+      {},
+      true,
+    ),
+    tracking: accountData.peek<Tracking>(route + '/tracking', {}, true),
+    refunds: accountData.peek<RefundRow[]>(
+      '/v1/payments/orders/' + id + '/refunds',
+      {},
+      true,
+    ),
+  }
+  if (
+    !bundle.order ||
+    !bundle.returns ||
+    !bundle.replacements ||
+    !bundle.tracking ||
+    !bundle.refunds
+  )
+    return null
+  try {
+    return checkedBundle(bundle as Bundle, id)
+  } catch {
+    return null
+  }
+}
 type Pending = { route: string; body?: Record<string, unknown> }
 export function useOrderResource(
   inputId: string,
@@ -24,7 +66,9 @@ export function useOrderResource(
   owner = false,
 ) {
   const id = inputId.toLowerCase()
-  const [data, setData] = useState<Bundle | null>(null),
+  const [data, setData] = useState<Bundle | null>(() =>
+      admin ? null : cachedBundle(id),
+    ),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(''),
@@ -45,18 +89,22 @@ export function useOrderResource(
     )
       throw new Error('The account changed. Reopen the order.')
   }
-  async function load() {
+  async function load(force = false) {
     guard()
     if (!isOrderId(id)) throw new Error('Enter a canonical order UUID.')
     const ticket = ++generation.current
+    const read = <T,>(resource: string) =>
+      admin
+        ? api.request<T>(resource)
+        : accountData.read<T>(resource, {}, force)
     const [order, returns, replacements, tracking, refunds] = await Promise.all(
       [
-        api.request<OrderDetail>(route),
-        api.request<ReturnRow[]>(route + '/returns'),
-        api.request<ReplacementRow[]>(route + '/replacements'),
-        api.request<Tracking>(route + '/tracking'),
+        read<OrderDetail>(route),
+        read<ReturnRow[]>(route + '/returns'),
+        read<ReplacementRow[]>(route + '/replacements'),
+        read<Tracking>(route + '/tracking'),
         !admin || owner
-          ? api.request<RefundRow[]>(
+          ? read<RefundRow[]>(
               (admin ? '/v1/admin/payments/orders/' : '/v1/payments/orders/') +
                 id +
                 '/refunds',
@@ -66,15 +114,9 @@ export function useOrderResource(
     )
     guard()
     if (ticket !== generation.current) return
-    readOrderDetail(order)
-    if (
-      !Array.isArray(returns) ||
-      !Array.isArray(replacements) ||
-      !Array.isArray(refunds) ||
-      tracking.orderId !== id
+    setData(
+      checkedBundle({ order, returns, replacements, tracking, refunds }, id),
     )
-      throw new Error('Invalid order ledger response.')
-    setData({ order, returns, replacements, tracking, refunds })
     setError('')
   }
   useEffect(() => {
@@ -133,7 +175,7 @@ export function useOrderResource(
     setNotice(
       'Action acknowledged by the server. Read the current state below.',
     )
-    await load()
+    await load(true)
   }
   function act(target: string, body?: Record<string, unknown>) {
     return perform(async () => {
@@ -157,14 +199,14 @@ export function useOrderResource(
     pending,
     route,
     act,
-    refresh: () => perform(load),
+    refresh: () => perform(() => load(true)),
     retry: () =>
       perform(async () => {
         if (uncertain.current) await execute(uncertain.current)
       }),
     reconcile: () =>
       perform(async () => {
-        await load()
+        await load(true)
         guard()
         if (
           window.confirm(

@@ -96,3 +96,25 @@ test('private routes cannot be cached and public memory use is bounded', async (
   assert.equal(cache.peek('/v1/products', { page: 1 }), null)
   assert.equal(cache.peek('/v1/products', { page: 3 }), 3)
 })
+
+test('store bootstrap, operations and categories share public freshness without private identity', async () => {
+  const cache = createPublicCache()
+  for (const route of [
+    '/v1/store/bootstrap',
+    '/v1/store/operations',
+    '/v1/categories',
+  ]) {
+    let calls = 0
+    const load = async () => {
+      calls++
+      return { configured: true }
+    }
+    await cache.get(route, {}, load)
+    await cache.get(route, {}, load)
+    assert.equal(calls, 1)
+  }
+  assert.throws(
+    () => cache.get('/v1/account/profile', {}, async () => ({})),
+    /not public/,
+  )
+})

@@ -1,6 +1,6 @@
 'use client'
 import { createContext, useContext, useEffect, useState } from 'react'
-import { api } from '@/lib/api/client'
+import { publicData, readPublic } from '@/lib/api/public-data'
 import { readCategories, type Category } from '@/lib/api/catalog'
 const Context = createContext<{
   categories: Category[]
@@ -9,20 +9,19 @@ const Context = createContext<{
   reload: () => void
 }>({ categories: [], loading: true, error: '', reload: () => undefined })
 export function CatalogProvider({ children }: { children: React.ReactNode }) {
-  const [categories, setCategories] = useState<Category[]>([]),
+  const [categories, setCategories] = useState<Category[]>(() => {
+      const cached = publicData.peek('/v1/categories')
+      return cached ? readCategories(cached) : []
+    }),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(''),
     [revision, setRevision] = useState(0)
   useEffect(() => {
-    const controller = new AbortController()
     let active = true
-    const load = async () => {
+    const load = async (force = false) => {
       try {
         const result = readCategories(
-          await api.request('/v1/categories', {
-            auth: false,
-            signal: controller.signal,
-          }),
+          await readPublic('/v1/categories', {}, force),
         )
         if (active) {
           setCategories(result)
@@ -40,7 +39,7 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
       }
     }
     setLoading(true)
-    void load()
+    void load(revision > 0)
     const focus = () => {
       if (document.visibilityState === 'visible') void load()
     }
@@ -48,7 +47,6 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
     const timer = setInterval(focus, 60000)
     return () => {
       active = false
-      controller.abort()
       clearInterval(timer)
       window.removeEventListener('focus', focus)
     }

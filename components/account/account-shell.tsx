@@ -12,6 +12,7 @@ import {
   UserRound,
   Bell,
 } from 'lucide-react'
+import { prefetchOrders } from './account-preload'
 import { api } from '@/lib/api/client'
 import { cn } from '@/lib/utils'
 const sections = [
@@ -61,6 +62,15 @@ export function AccountShell({ children }: { children: ReactNode }) {
               <Link
                 key={href}
                 href={href}
+                onMouseEnter={
+                  href === '/account/orders' ? prefetchOrders : undefined
+                }
+                onFocus={
+                  href === '/account/orders' ? prefetchOrders : undefined
+                }
+                onTouchStart={
+                  href === '/account/orders' ? prefetchOrders : undefined
+                }
                 aria-current={active ? 'page' : undefined}
                 className={cn(
                   'flex shrink-0 items-center gap-2.5 whitespace-nowrap rounded-xl border px-3.5 py-3 text-sm font-bold transition lg:border-transparent',

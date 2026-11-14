@@ -12,6 +12,8 @@ import {
   type OrderDetail,
   type Tracking,
 } from '@/lib/api/orders'
+import { useAccountResource } from '@/components/account/use-account-resource'
+import { prefetchOrder } from '@/components/account/account-preload'
 import { useOrderResource } from './resource'
 import {
   actionClass,
@@ -20,32 +22,11 @@ import {
 } from '@/components/shopping/cart'
 
 export function OrderHistory() {
-  const [page, setPage] = useState(1),
-    [data, setData] = useState<OrderPage | null>(null),
-    [error, setError] = useState(''),
-    [revision, setRevision] = useState(0)
-  useEffect(() => {
-    let active = true
-    const controller = new AbortController()
-    setData(null)
-    setError('')
-    void api
-      .request<OrderPage>('/v1/orders', {
-        query: { page, limit: 20 },
-        signal: controller.signal,
-      })
-      .then((rows) => {
-        if (active) setData(rows)
-      })
-      .catch((e) => {
-        if (active)
-          setError(e instanceof Error ? e.message : 'Could not load orders.')
-      })
-    return () => {
-      active = false
-      controller.abort()
-    }
-  }, [page, revision])
+  const [page, setPage] = useState(1)
+  const { data, error, reload } = useAccountResource<OrderPage>('/v1/orders', {
+    page,
+    limit: 20,
+  })
   return (
     <section className="container-shell max-w-5xl space-y-5 py-10">
       <h1 className="text-3xl font-black">Your orders</h1>
@@ -56,7 +37,7 @@ export function OrderHistory() {
         Owned orders, newest first. Payment and delivery states are separate.
       </p>
       <ErrorMessage text={error} />
-      <button className={actionClass} onClick={() => setRevision((v) => v + 1)}>
+      <button className={actionClass} onClick={reload}>
         Refresh orders
       </button>
       {data ? (
@@ -70,6 +51,9 @@ export function OrderHistory() {
                 <Link
                   className="break-all font-bold text-primary"
                   href={'/account/orders/' + row.id}
+                  onMouseEnter={() => prefetchOrder(row.id)}
+                  onFocus={() => prefetchOrder(row.id)}
+                  onTouchStart={() => prefetchOrder(row.id)}
                 >
                   {row.id}
                 </Link>

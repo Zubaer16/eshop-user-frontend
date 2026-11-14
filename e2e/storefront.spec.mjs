@@ -862,6 +862,481 @@ async function checkoutScenario(page, initialQuantity = 12) {
   }
 }
 
+test('session preload reuses addresses and profile across account and checkout navigation', async ({
+  page,
+}) => {
+  await checkoutScenario(page, 2)
+  let addresses = 0,
+    profiles = 0,
+    preferences = 0
+  page.on('response', (response) => {
+    const path = new URL(response.url()).pathname
+    if (path === '/v1/account/addresses') addresses++
+    if (path === '/v1/account/profile') profiles++
+    if (path === '/v1/notifications/preferences') preferences++
+  })
+  await page.goto('/shop')
+  await expect.poll(() => addresses).toBe(1)
+  await expect.poll(() => profiles).toBe(1)
+  await expect.poll(() => preferences).toBe(1)
+  await page
+    .locator('header')
+    .getByRole('link', { name: 'Account', exact: true })
+    .click()
+  await expect(page.getByLabel('Display name', { exact: true })).toHaveValue(
+    'Design customer',
+  )
+  await page.getByRole('link', { name: 'Saved addresses', exact: true }).click()
+  await expect(
+    page.getByText('1 Checkout Street', { exact: false }).first(),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Open cart', exact: false }).click()
+  await page
+    .getByRole('link', { name: 'Continue to checkout', exact: true })
+    .click()
+  await expect(page.getByLabel('Delivery address')).toHaveValue(id(70))
+  await expect(
+    page.getByText('Loading checkout…', { exact: true }),
+  ).toHaveCount(0)
+  expect(addresses).toBe(1)
+  expect(profiles).toBe(1)
+  const persisted = await page.evaluate(() =>
+    Object.keys(localStorage)
+      .map((key) => localStorage.getItem(key))
+      .join(' '),
+  )
+  expect(persisted).not.toContain('1 Checkout Street')
+  expect(persisted).not.toContain('Design customer')
+})
+
+test('background profile refresh preserves an unsaved display-name edit', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  await page.addInitScript(() => {
+    const currentTime = Date.now
+    window.cacheTimeOffset = 0
+    Date.now = () => currentTime() + window.cacheTimeOffset
+  })
+  let reads = 0,
+    release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/account/profile', async (route) => {
+    reads++
+    const refreshing = reads > 1
+    if (refreshing) await gate
+    await route.fulfill({
+      json: {
+        ...user,
+        displayName: refreshing ? 'Changed elsewhere' : 'Cached profile',
+        emailVerified: !refreshing,
+        createdAt: new Date().toISOString(),
+      },
+    })
+  })
+  try {
+    await page.goto('/account')
+    await expect(page.getByLabel('Display name', { exact: true })).toHaveValue(
+      'Cached profile',
+    )
+    await page
+      .getByRole('link', { name: 'Continue shopping', exact: true })
+      .click()
+    await expect.poll(() => reads).toBe(1)
+    await page.evaluate(() => {
+      window.cacheTimeOffset = 300001
+    })
+    await page
+      .locator('header')
+      .getByRole('link', { name: 'Account', exact: true })
+      .click()
+    const field = page.getByLabel('Display name', { exact: true })
+    await expect(field).toHaveValue('Cached profile')
+    await field.fill('My unsaved edit')
+    release()
+    await expect(
+      page.getByText('Email not yet verified', { exact: false }),
+    ).toBeVisible()
+    await expect(field).toHaveValue('My unsaved edit')
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('notification preferences preload once and refresh after a revisioned save', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let reads = 0,
+    saved
+  let preferences = {
+    revision: 0,
+    securityEmailRequired: true,
+    transactionalInAppRequired: true,
+    operationalInApp: false,
+  }
+  await page.route('**/v1/notifications/preferences', (route) => {
+    if (route.request().method() === 'PUT') {
+      saved = route.request().postDataJSON()
+      preferences = { ...preferences, ...saved, revision: 1 }
+      return route.fulfill({ json: preferences })
+    }
+    reads++
+    return route.fulfill({ json: preferences })
+  })
+  await page.route('**/v1/notifications?**', (route) =>
+    route.fulfill({
+      json: { items: [], total: 0, unread: 0, page: 1, pages: 0 },
+    }),
+  )
+  await page.goto('/shop')
+  await expect.poll(() => reads).toBe(1)
+  await page
+    .locator('header')
+    .getByRole('link', { name: 'Inbox', exact: true })
+    .click()
+  const save = page.getByRole('button', {
+    name: 'Save notification preferences',
+    exact: true,
+  })
+  await expect(save).toBeEnabled()
+  expect(reads).toBe(1)
+  await page
+    .getByRole('checkbox', { name: 'operational In App', exact: false })
+    .check()
+  await save.click()
+  await expect(
+    page.getByText('Notification preferences saved.', { exact: true }),
+  ).toBeVisible()
+  await expect.poll(() => reads).toBe(2)
+  expect(saved.expectedRevision).toBe(0)
+  expect(saved.operationalInApp).toBe(true)
+  await expect(
+    page.getByRole('checkbox', { name: 'operational In App', exact: false }),
+  ).toBeChecked()
+})
+
+test('a cold address read leaves checkout visible and is shared with session preload', async ({
+  page,
+}) => {
+  await checkoutScenario(page, 2)
+  let calls = 0,
+    release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/account/addresses', async (route) => {
+    calls++
+    await gate
+    await route.fulfill({ json: { items: [], count: 0 } })
+  })
+  try {
+    await page.goto('/checkout')
+    await expect(
+      page.getByRole('heading', { name: 'Order summary', exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByText('Loading delivery addresses…', { exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByText('Loading checkout…', { exact: true }),
+    ).toHaveCount(0)
+    expect(calls).toBe(1)
+  } finally {
+    release()
+  }
+  await expect(
+    page.getByRole('link', {
+      name: 'Add a saved delivery address',
+      exact: true,
+    }),
+  ).toBeVisible()
+})
+
+test('editing a saved address invalidates preloaded data before returning to checkout', async ({
+  page,
+}) => {
+  await checkoutScenario(page, 2)
+  let city = 'Before edit',
+    reads = 0
+  const address = {
+    id: id(71),
+    label: 'Home',
+    recipientName: 'Customer',
+    phone: '+12025550123',
+    addressLine1: '1 Checkout Street',
+    addressLine2: '',
+    city,
+    region: '',
+    postalCode: '',
+    countryCode: 'US',
+    isDefault: true,
+  }
+  await page.route('**/v1/account/addresses', (route) => {
+    reads++
+    return route.fulfill({ json: { items: [{ ...address, city }], count: 1 } })
+  })
+  await page.route('**/v1/account/addresses/' + id(71), (route) => {
+    city = route.request().postDataJSON().city
+    return route.fulfill({ json: { ...address, city } })
+  })
+  await page.goto('/account/addresses')
+  await expect(
+    page.getByText('Before edit', { exact: false }).first(),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Edit address', exact: true }).click()
+  await page.getByLabel('City', { exact: true }).fill('After edit')
+  await page.getByRole('button', { name: 'Save address', exact: true }).click()
+  await expect(
+    page.getByText('After edit', { exact: false }).first(),
+  ).toBeVisible()
+  expect(reads).toBe(2)
+  await page.getByRole('button', { name: 'Open cart', exact: false }).click()
+  await page
+    .getByRole('link', { name: 'Continue to checkout', exact: true })
+    .click()
+  await expect(
+    page.getByLabel('Delivery address').getByRole('option', { selected: true }),
+  ).toContainText('After edit')
+  expect(reads).toBe(2)
+})
+
+test('refreshing an expired address updates delivery pricing when the same address changes country', async ({
+  page,
+}) => {
+  await checkoutScenario(page, 2)
+  await page.addInitScript(() => {
+    const currentTime = Date.now
+    window.cacheTimeOffset = 0
+    Date.now = () => currentTime() + window.cacheTimeOffset
+  })
+  let addressReads = 0
+  const countries = []
+  await page.route('**/v1/account/addresses', (route) => {
+    addressReads++
+    return route.fulfill({
+      json: {
+        items: [
+          {
+            id: id(70),
+            label: 'Home',
+            recipientName: 'Customer',
+            phone: '+12025550123',
+            addressLine1: '1 Checkout Street',
+            addressLine2: '',
+            city: 'Example',
+            region: '',
+            postalCode: '',
+            countryCode: addressReads === 1 ? 'US' : 'FR',
+            isDefault: true,
+          },
+        ],
+        count: 1,
+      },
+    })
+  })
+  await page.route('**/v1/checkout/delivery-options', (route) => {
+    const countryCode = route.request().postDataJSON().countryCode
+    countries.push(countryCode)
+    const shippingMinor = countryCode === 'FR' ? 500 : 0
+    return route.fulfill({
+      json: {
+        countryCode,
+        currency: 'USD',
+        subtotalMinor: 3998,
+        discountMinor: 0,
+        options: [
+          {
+            kind: null,
+            label: 'Standard',
+            shippingMinor,
+            taxMinor: 0,
+            totalMinor: 3998 + shippingMinor,
+            etaNote: '',
+          },
+        ],
+      },
+    })
+  })
+  await page.goto('/shop')
+  await expect.poll(() => addressReads).toBe(1)
+  await page.evaluate(() => {
+    window.cacheTimeOffset = 300001
+  })
+  await page.getByRole('button', { name: 'Open cart', exact: false }).click()
+  await page
+    .getByRole('link', { name: 'Continue to checkout', exact: true })
+    .click()
+  await expect.poll(() => countries).toContain('FR')
+  await expect(
+    page.getByRole('group', { name: 'Delivery service', exact: true }),
+  ).toContainText('$5.00')
+  expect(addressReads).toBe(2)
+})
+
+test('account-link intent preloads recent orders and explicit refresh bypasses the cache', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let reads = 0
+  await page.route('**/v1/orders?**', (route) => {
+    reads++
+    return route.fulfill({
+      json: { items: [], total: 0, page: 1, limit: 20, pages: 0 },
+    })
+  })
+  await page.goto('/shop')
+  await page
+    .locator('header')
+    .getByRole('link', { name: 'Account', exact: true })
+    .hover()
+  await expect.poll(() => reads).toBe(1)
+  await page
+    .locator('footer')
+    .getByRole('link', { name: 'Your orders', exact: true })
+    .click()
+  await expect(
+    page.getByText('No orders on this account.', { exact: true }),
+  ).toBeVisible()
+  expect(reads).toBe(1)
+  await page
+    .getByRole('button', { name: 'Refresh orders', exact: true })
+    .click()
+  await expect.poll(() => reads).toBe(2)
+})
+
+test('order-link intent warms the order and its ledgers before navigation', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  const orderId = id(80)
+  const order = {
+    ...pendingCheckoutOrder('PAID'),
+    countryCode: 'US',
+    deliveryKind: null,
+    createdAt: new Date().toISOString(),
+    fulfillment: null,
+    shippingAddress: {
+      recipientName: 'Customer',
+      phone: '+12025550123',
+      addressLine1: '1 Order Street',
+      addressLine2: null,
+      city: 'Example',
+      region: null,
+      postalCode: null,
+      countryCode: 'US',
+    },
+  }
+  let reads = 0
+  await page.route('**/v1/orders?**', (route) =>
+    route.fulfill({
+      json: { items: [order], total: 1, page: 1, limit: 20, pages: 1 },
+    }),
+  )
+  await page.route('**/v1/orders/' + orderId + '**', (route) => {
+    reads++
+    const path = new URL(route.request().url()).pathname
+    return route.fulfill({
+      json: path.endsWith('/tracking')
+        ? {
+            orderId,
+            orderStatus: 'PAID',
+            originalShipment: null,
+            returns: [],
+            replacements: [],
+            events: [],
+          }
+        : path.endsWith(orderId)
+          ? order
+          : [],
+    })
+  })
+  await page.route('**/v1/payments/orders/' + orderId + '/refunds', (route) => {
+    reads++
+    return route.fulfill({ json: [] })
+  })
+  await page.goto('/account/orders')
+  const link = page.getByRole('link', { name: orderId, exact: true })
+  await link.hover()
+  await expect.poll(() => reads).toBe(5)
+  await link.click()
+  await expect(
+    page.getByText('No delivery events recorded.', { exact: true }),
+  ).toBeVisible()
+  expect(reads).toBe(5)
+  await page.getByRole('button', { name: 'Refresh order', exact: true }).click()
+  await expect.poll(() => reads).toBe(10)
+})
+
+test('switching accounts rejects a delayed address response and clears the previous profile', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let current = user,
+    calls = 0,
+    release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/api/auth/session', (route) =>
+    route.fulfill({
+      json: {
+        accessToken: 'controlled-account-switch-token',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: current,
+      },
+    }),
+  )
+  await page.route('**/v1/auth/me', (route) => route.fulfill({ json: current }))
+  await page.route('**/v1/account/profile', (route) =>
+    route.fulfill({
+      json: {
+        ...current,
+        displayName:
+          current.id === user.id ? 'Private account A' : 'Private account B',
+        emailVerified: true,
+        createdAt: new Date().toISOString(),
+      },
+    }),
+  )
+  await page.route('**/v1/account/addresses', async (route) => {
+    const owner = current.id
+    calls++
+    if (owner === user.id) await gate
+    await route.fulfill({ json: { items: [], count: 0 } }).catch(() => {})
+  })
+  try {
+    await page.goto('/account')
+    await expect(page.getByLabel('Display name', { exact: true })).toHaveValue(
+      'Private account A',
+    )
+    current = { ...user, id: id(97), email: 'another@example.test' }
+    await page.evaluate(() => {
+      const channel = new BroadcastChannel('eshop-auth-customer')
+      channel.postMessage({ type: 'login', source: 'other-cache-test-tab' })
+      channel.close()
+    })
+    await expect(page.getByLabel('Display name', { exact: true })).toHaveValue(
+      'Private account B',
+    )
+    release()
+    await expect(page.getByLabel('Display name', { exact: true })).toHaveValue(
+      'Private account B',
+    )
+    await expect(
+      page.getByText('fixture@example.test', { exact: true }),
+    ).toHaveCount(0)
+    expect(calls).toBeGreaterThanOrEqual(2)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
 test('ordinary checkout defers recovery until payment and ignores duplicate clicks while recovering', async ({
   page,
 }) => {

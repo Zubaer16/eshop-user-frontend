@@ -1,6 +1,7 @@
 'use client'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from '@/lib/api/client'
+import { useAccountResource } from '@/components/account/use-account-resource'
 import {
   addressPayload,
   type Address,
@@ -8,35 +9,6 @@ import {
   type Profile,
 } from '@/lib/api/shopping'
 import { actionClass, inputClass, ErrorMessage } from './cart'
-function useAccountResource<T>(route: string) {
-  const [data, setData] = useState<T | null>(null),
-    [error, setError] = useState(''),
-    [revision, setRevision] = useState(0)
-  useEffect(() => {
-    let active = true
-    const controller = new AbortController()
-    setData(null)
-    setError('')
-    api
-      .request<T>(route, { signal: controller.signal })
-      .then((data) => {
-        if (active) setData(data)
-      })
-      .catch((error) => {
-        if (active)
-          setError(
-            error instanceof Error
-              ? error.message
-              : 'Could not load your account.',
-          )
-      })
-    return () => {
-      active = false
-      controller.abort()
-    }
-  }, [route, revision])
-  return { data, error, reload: () => setRevision((value) => value + 1) }
-}
 export function AccountHome() {
   const resource = useAccountResource<Profile>('/v1/account/profile')
   const [notice, setNotice] = useState('')
@@ -56,7 +28,7 @@ export function AccountHome() {
       )}
       {resource.data ? (
         <ProfileForm
-          key={resource.data.id + resource.data.displayName}
+          key={resource.data.id}
           profile={resource.data}
           saved={() => {
             setNotice('Display name saved.')
@@ -79,6 +51,10 @@ function ProfileForm({
   const [name, setName] = useState(profile.displayName),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false)
+  const edited = useRef(false)
+  useEffect(() => {
+    if (!edited.current) setName(profile.displayName)
+  }, [profile.displayName])
   async function submit(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
@@ -88,6 +64,7 @@ function ProfileForm({
         method: 'PATCH',
         body: { displayName: name.trim() },
       })
+      edited.current = false
       setName(updated.displayName)
       saved()
     } catch (error) {
@@ -115,7 +92,10 @@ function ProfileForm({
             required
             maxLength={120}
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => {
+              edited.current = true
+              setName(event.target.value)
+            }}
             disabled={busy}
             autoComplete="name"
           />

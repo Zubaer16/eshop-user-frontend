@@ -1,5 +1,6 @@
 'use client'
 
+import { AccountPreload } from '@/components/account/account-preload'
 import { AuthProvider } from '@/components/auth/auth-provider'
 import { CatalogProvider } from '@/components/catalog/catalog-provider'
 import { CommerceProvider } from '@/components/shopping/commerce-provider'
@@ -11,6 +12,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <StoreProvider>
       <AuthProvider>
+        <AccountPreload />
         <PushLifecycle />
         <CommerceProvider>
           <CatalogProvider>

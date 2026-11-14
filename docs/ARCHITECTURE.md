@@ -1,5 +1,26 @@
 # Storefront architecture
 
+## Isolated account preload and navigation cache - 2026-11-14
+
+The owner approved preloading the recommended customer data while preserving account isolation. Storefront now starts saved-address, profile and notification-preference GETs in the background after login or authenticated session restoration. Account/address pages and checkout consume shared reads. Ordinary checkout immediately renders its form and summary, with a local address-loading status when the cache is cold. Stripe return recovery and payment-button checks continue through the existing checkout flow.
+
+A browser-memory Zustand store scopes private entries to the authenticated customer ID and session epoch. Session publication clears entries synchronously on logout, identity changes or a new session epoch. Queued requests verify the owner before dispatch and completed responses verify it again before publication. Mutation invalidation also fences older in-flight reads. Private data uses a bounded 40-entry allowlisted cache. Cache entries are memory-only. The selected freshness windows are five minutes for addresses/profile, one minute for notification preferences and fifteen seconds for order resources. Expired values can render while their current data is fetched. Explicit refresh bypasses freshness. Failed requests remain retryable.
+
+Account menu and Orders navigation intent through hover, keyboard focus or touch warms the first order-history page. Individual order-link intent warms the owned order, tracking, returns, replacements and refund ledgers. Order actions and explicit refresh reload authoritative records. Cache use is confined to selected customer read endpoints. Authentication/session responses, checkout recovery and Stripe preparation continue through their existing transport paths.
+
+Address/profile/preferences writes invalidate the relevant private entries even when a result is uncertain. Order/payment/checkout mutations invalidate cached order resources. Email-verification confirmation invalidates the profile. Late responses from an older account cannot populate the active cache or invalidate the replacement account through a stale page reload callback. Public bootstrap, operations and categories share the existing thirty-second public cache and request deduplication. Category focus refresh respects freshness, while explicit refresh forces a read.
+
+Profile background refresh preserves an unsaved display-name edit. Cached notification preferences render immediately while their read completes, with editing gated until that preference read settles. A refreshed address country triggers a new delivery quote even when its address ID stays the same.
+
+### Executed validation
+
+- Storefront production build with type validation, lint and project verification passed. All 71 unit tests and 47 production-browser tests passed with zero retries or skips.
+- Seven account-cache unit regressions cover shared reads and freshness, cloned values, logout/account-switch clearing, delayed/queued old-session responses, invalidation racing an old request, retry after failure, allowlisted endpoints, bounded storage and query isolation. Public-cache coverage now includes bootstrap, operations and categories while continuing to reject private resources.
+- Nine browser regressions cover one address/profile preload across account/address/checkout navigation, the cold address-only loading state, successful address-edit invalidation, same-address country/pricing refresh after expiry, first-page order prefetch, owned order/ledger prefetch and forced refresh, a delayed account-A response during account-B restoration, preservation of an unsaved profile edit and notification-preference preload plus revisioned save.
+- The warm-navigation browser test verifies one address GET and one profile GET across those page transitions and verifies that the address and profile name are absent from localStorage. Existing checkout recovery timing, stock correction, Stripe return, uncertain retry, concurrent cart edits and CSP tests passed. Git diff whitespace checks passed.
+
+This batch changes User Frontend code. Source commit/push and live application deployment remain pending. Browser refresh starts a fresh in-memory account cache. Backend price/stock validation, reservation and payment authority continue at the approved checkout boundaries.
+
 ## Browser security headers and dependency remediation - 2026-11-14
 
 The owner approved implementing the focused security-audit findings. Both frontend Next configurations now send Content-Security-Policy, X-Content-Type-Options nosniff, X-Frame-Options DENY and Referrer-Policy strict-origin-when-cross-origin. CSP blocks inline event-handler attributes, foreign scripts, object embeds, frames, base elements and cross-origin form submissions. Connections permit the configured browser API origin and the Firebase installation/FCM registration endpoints. Images retain HTTPS provider support. Same-origin workers support the existing push worker. Production enables upgrade-insecure-requests. Development allows eval and WebSocket connections for development tooling.

@@ -22,6 +22,7 @@ import {
   type Selection,
   type ShippingAddress,
 } from '@/lib/api/checkout'
+import { useAccountResource } from '@/components/account/use-account-resource'
 import { shoppingLock } from '@/lib/api/shopping-lock'
 import { checkoutItems } from '@/lib/stores/local-cart'
 import { useCommerce } from './commerce-provider'
@@ -35,8 +36,13 @@ type CheckoutIntent = Selection & {
 
 export function Checkout() {
   const shopping = useCommerce()
-  const [addresses, setAddresses] = useState<Address[]>([])
-  const [addressId, setAddressId] = useState('')
+  const addressResource = useAccountResource<{ items: Address[] }>(
+    '/v1/account/addresses',
+  )
+  const addresses = addressResource.data?.items ?? []
+  const [addressId, setAddressId] = useState(
+    () => addresses.find((row) => row.isDefault)?.id || addresses[0]?.id || '',
+  )
   const [coupon, setCoupon] = useState('')
   const [appliedCoupon, setAppliedCoupon] = useState('')
   const [kind, setKind] = useState('')
@@ -47,7 +53,7 @@ export function Checkout() {
   const [intent, setIntent] = useState<CheckoutIntent | null>(null)
   const [shortages, setShortages] = useState<StockShortage[]>([])
   const [busy, setBusy] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [deliveryLoading, setDeliveryLoading] = useState(false)
   const [error, setError] = useState('')
   const [deliveryError, setDeliveryError] = useState('')
@@ -130,17 +136,10 @@ export function Checkout() {
     void (async () => {
       try {
         const query = new URLSearchParams(window.location.search)
-        const [result] = await Promise.all([
-          api.request<{ items: Address[] }>('/v1/account/addresses'),
-          query.has('order') ? recover() : Promise.resolve(),
-        ])
-        guard()
-        setAddresses(result.items)
-        setAddressId(
-          result.items.find((row) => row.isDefault)?.id ||
-            result.items[0]?.id ||
-            '',
-        )
+        if (query.has('order')) {
+          setLoading(true)
+          await recover()
+        }
       } catch (failure) {
         if (mounted.current)
           setError(
@@ -158,6 +157,15 @@ export function Checkout() {
     // The authenticated boundary remounts this component when the account changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+  useEffect(() => {
+    const saved = addressResource.data?.items
+    if (!saved) return
+    setAddressId((previous) =>
+      saved.some((row) => row.id === previous)
+        ? previous
+        : saved.find((row) => row.isDefault)?.id || saved[0]?.id || '',
+    )
+  }, [addressResource.data])
   useEffect(() => {
     if (!cartVersion) {
       setOptions(null)
@@ -214,6 +222,7 @@ export function Checkout() {
     activeHold,
     intent,
     addressId,
+    address?.countryCode,
     appliedCoupon,
     cartVersion,
   ])
@@ -372,7 +381,9 @@ export function Checkout() {
       </ol>
       <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-6 rounded-[22px] border border-border bg-white p-5 sm:p-7">
-          <ErrorMessage text={error || deliveryError} />
+          <ErrorMessage
+            text={error || deliveryError || addressResource.error}
+          />
           {notice && (
             <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm">
               {notice}
@@ -555,7 +566,18 @@ export function Checkout() {
                 </div>
               ) : (
                 <>
-                  {!addresses.length && (
+                  {addressResource.loading && !addressResource.data && (
+                    <p role="status">Loading delivery addresses…</p>
+                  )}
+                  {addressResource.error && (
+                    <button
+                      className={actionClass}
+                      onClick={addressResource.reload}
+                    >
+                      Retry delivery addresses
+                    </button>
+                  )}
+                  {!addressResource.loading && !addresses.length && (
                     <Link href="/account/addresses" className={actionClass}>
                       Add a saved delivery address
                     </Link>

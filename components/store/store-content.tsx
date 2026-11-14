@@ -1,6 +1,5 @@
 'use client'
 import { createContext, useContext, useEffect, useState } from 'react'
-import { api } from '@/lib/api/client'
 import { publicData, readPublic } from '@/lib/api/public-data'
 import { Homepage } from '@/components/store/home'
 import { ProductCard } from './product-card'
@@ -88,15 +87,19 @@ const Context = createContext<{
   error: string
 }>({ data: null, operations: null, error: '' })
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<Bootstrap | null>(null),
-    [operations, setOperations] = useState<Operations | null>(null),
+  const [data, setData] = useState<Bootstrap | null>(() =>
+      publicData.peek('/v1/store/bootstrap'),
+    ),
+    [operations, setOperations] = useState<Operations | null>(() =>
+      publicData.peek('/v1/store/operations'),
+    ),
     [error, setError] = useState('')
   useEffect(() => {
     let active = true
     async function load() {
       const results = await Promise.allSettled([
-        api.request<Bootstrap>('/v1/store/bootstrap', { auth: false }),
-        api.request<Operations>('/v1/store/operations', { auth: false }),
+        readPublic<Bootstrap>('/v1/store/bootstrap'),
+        readPublic<Operations>('/v1/store/operations'),
       ])
       if (!active) return
       const [b, o] = results

@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { api } from '@/lib/api/client'
+import { api, accountData } from '@/lib/api/client'
 import {
   enableBrowserPush,
   revokeBrowserPush,
@@ -53,7 +53,10 @@ export function NotificationInbox() {
     [page, setPage] = useState(1),
     [unread, setUnread] = useState(false),
     [data, setData] = useState<Page | null>(null),
-    [prefs, setPrefs] = useState<Preferences | null>(null),
+    [prefs, setPrefs] = useState<Preferences | null>(() =>
+      accountData.peek('/v1/notifications/preferences'),
+    ),
+    [prefsLoading, setPrefsLoading] = useState(true),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
     [revision, setRevision] = useState(0),
@@ -66,20 +69,26 @@ export function NotificationInbox() {
     let active = true
     const c = new AbortController()
     setData(null)
+    setPrefsLoading(true)
     setError('')
     void Promise.all([
       api.request<Page>('/v1/notifications', {
         query: { page, limit: 20, readState: unread ? 'unread' : 'all' },
         signal: c.signal,
       }),
-      api.request<Preferences>('/v1/notifications/preferences', {
-        signal: c.signal,
-      }),
+      accountData
+        .read<Preferences>('/v1/notifications/preferences')
+        .then((value) => {
+          if (active) setPrefs(value)
+          return value
+        })
+        .finally(() => {
+          if (active) setPrefsLoading(false)
+        }),
     ])
-      .then(([rows, p]) => {
+      .then(([rows]) => {
         if (active) {
           setData(rows)
-          setPrefs(p)
         }
       })
       .catch((e) => {
@@ -274,6 +283,7 @@ export function NotificationInbox() {
           className="space-y-4 rounded-2xl border bg-white p-5"
           onSubmit={(e) => {
             e.preventDefault()
+            if (prefsLoading) return
             const form = new FormData(e.currentTarget)
             if (
               form.has('marketingEmail') ||
@@ -302,7 +312,10 @@ export function NotificationInbox() {
           }}
         >
           <h2 className="text-xl font-bold">Notification preferences</h2>
-          <fieldset className="grid gap-4 sm:grid-cols-2" disabled={busy}>
+          <fieldset
+            className="grid gap-4 sm:grid-cols-2"
+            disabled={busy || prefsLoading}
+          >
             {channels.map((key) => (
               <label key={key} className="text-sm">
                 <input
@@ -314,7 +327,7 @@ export function NotificationInbox() {
               </label>
             ))}
           </fieldset>
-          <button className={button} disabled={busy}>
+          <button className={button} disabled={busy || prefsLoading}>
             Save notification preferences
           </button>
         </form>

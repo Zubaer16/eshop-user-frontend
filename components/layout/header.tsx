@@ -15,6 +15,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
+import { prefetchOrders } from '@/components/account/account-preload'
 import { Logo } from '@/components/layout/logo'
 import {
   Sheet,
@@ -170,6 +171,9 @@ export function Header() {
           </span>
           <Link
             href="/account"
+            onMouseEnter={prefetchOrders}
+            onFocus={prefetchOrders}
+            onTouchStart={prefetchOrders}
             aria-label={t.account}
             className="hidden items-center gap-2 rounded-lg p-2 text-ink hover:bg-slate-100 md:flex"
           >
@@ -347,6 +351,9 @@ export function Header() {
           </div>
           <Link
             href="/account"
+            onMouseEnter={prefetchOrders}
+            onFocus={prefetchOrders}
+            onTouchStart={prefetchOrders}
             onClick={() => setMobileOpen(false)}
             className="mt-3 flex items-center justify-between rounded-xl bg-blue-50 px-3 py-3 text-sm font-extrabold text-primary"
           >

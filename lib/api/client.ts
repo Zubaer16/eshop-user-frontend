@@ -1,5 +1,6 @@
 'use client'
-import { apiOrigin, createApiClient } from './runtime'
+import { apiOrigin, createApiClient, type RequestOptions } from './runtime'
+import { createAccountCache } from '../account-cache'
 import {
   announceSession,
   createBrowserSession,
@@ -22,6 +23,44 @@ export const api = createApiClient({
   onLogout: () => announceSession('customer', 'logout'),
   onLogin: () => announceSession('customer', 'login'),
 })
+export const accountData = createAccountCache({
+  session: api.getSnapshot,
+  request: (route, query) => api.request(route, { query }),
+})
+api.subscribe(accountData.syncSession)
+const request = api.request
+api.request = async function <T>(route: string, options: RequestOptions = {}) {
+  const owner = api.getSnapshot()
+  try {
+    return await request<T>(route, options)
+  } finally {
+    const current = api.getSnapshot()
+    if (
+      options.method &&
+      options.method !== 'GET' &&
+      current.epoch === owner.epoch &&
+      current.user?.id === owner.user?.id
+    ) {
+      if (route.startsWith('/v1/account/addresses'))
+        accountData.invalidate('/v1/account/addresses')
+      else if (
+        route.startsWith('/v1/account/') ||
+        route === '/v1/auth/email-verification/confirm'
+      )
+        accountData.invalidate('/v1/account/profile')
+      if (route === '/v1/notifications/preferences')
+        accountData.invalidate(route)
+      if (
+        /^\/v1\/(?:orders|payments|checkout\/(?:start|orders|reservations))(?:\/|$)/.test(
+          route,
+        )
+      ) {
+        accountData.invalidate('/v1/orders')
+        accountData.invalidate('/v1/payments/orders')
+      }
+    }
+  }
+}
 export const apiRequest = api.request
 
 const sessionSignOut = api.signOut
