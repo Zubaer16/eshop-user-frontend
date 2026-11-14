@@ -773,6 +773,298 @@ async function seedLocalCart(page, authenticated, quote) {
     { key: 'eshop-cart-v1:' + (authenticated ? user.id : 'guest'), quote },
   )
 }
+const wishlistPayload = (...selected) => ({
+  items: selected.map((product) => ({
+    productId: product.id,
+    slug: product.slug,
+    title: product.title,
+    currency: product.currency,
+    priceMinor: product.priceMinor,
+    addedAt: new Date().toISOString(),
+  })),
+  count: selected.length,
+})
+
+test('wishlist heart and count update before a delayed PUT and rapid toggles retain the latest choice', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let reads = 0,
+    writes = 0,
+    release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/wishlist', (route) => {
+    reads++
+    return route.fulfill({ json: wishlistPayload() })
+  })
+  await page.route('**/v1/wishlist/' + products[0].id, async (route) => {
+    writes++
+    await gate
+    await route.fulfill({ json: wishlistPayload(products[0]) })
+  })
+  try {
+    await openControlled(page, '/shop')
+    const save = () =>
+      page.getByRole('button', {
+        name: 'Save item: ' + products[0].title,
+        exact: true,
+      })
+    const remove = () =>
+      page.getByRole('button', {
+        name: 'Remove saved item: ' + products[0].title,
+        exact: true,
+      })
+    await save().click()
+    await expect(remove()).toHaveAttribute('aria-pressed', 'true')
+    await expect(
+      page
+        .locator('header')
+        .getByRole('link', { name: 'Wishlist', exact: true }),
+    ).toContainText('1')
+    await remove().click()
+    await expect(save()).toHaveAttribute('aria-pressed', 'false')
+    await save().click()
+    await expect(remove()).toHaveAttribute('aria-pressed', 'true')
+    expect(writes).toBe(1)
+    const response = page.waitForResponse((value) =>
+      value.url().endsWith('/v1/wishlist/' + products[0].id),
+    )
+    release()
+    await response
+    await page
+      .locator('header')
+      .getByRole('link', { name: 'Wishlist', exact: true })
+      .click()
+    await expect(
+      page.getByRole('heading', { name: 'Saved items', exact: true }),
+    ).toBeVisible()
+    expect(reads).toBe(1)
+    expect(writes).toBe(1)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('wishlist rejection rolls back the heart and allows another click without refreshing the page', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let writes = 0,
+    reads = 0
+  await page.route('**/v1/wishlist', (route) => {
+    reads++
+    return route.fulfill({ json: wishlistPayload() })
+  })
+  await page.route('**/v1/wishlist/' + products[0].id, (route) => {
+    writes++
+    return route.fulfill(
+      writes === 1
+        ? { status: 409, json: { message: 'Wishlist limit reached' } }
+        : { json: wishlistPayload(products[0]) },
+    )
+  })
+  await openControlled(page, '/shop')
+  const save = page.getByRole('button', {
+    name: 'Save item: ' + products[0].title,
+    exact: true,
+  })
+  await save.click()
+  await expect(
+    page.getByText('Wishlist limit reached', { exact: true }).first(),
+  ).toBeVisible()
+  await expect(save).toBeEnabled()
+  await expect(save).toHaveAttribute('aria-pressed', 'false')
+  await save.click()
+  await expect(
+    page.getByRole('button', {
+      name: 'Remove saved item: ' + products[0].title,
+      exact: true,
+    }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(
+    page.getByText('Wishlist limit reached', { exact: true }),
+  ).toHaveCount(0)
+  expect(writes).toBe(2)
+  expect(reads).toBe(1)
+})
+
+test('wishlist removal updates the saved-items page before the server responds', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let reads = 0,
+    release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/wishlist', (route) => {
+    reads++
+    return route.fulfill({ json: wishlistPayload(products[0]) })
+  })
+  await page.route('**/v1/wishlist/' + products[0].id, async (route) => {
+    await gate
+    await route.fulfill({ json: { removed: true } })
+  })
+  try {
+    await page.goto('/wishlist')
+    await page
+      .getByRole('button', { name: /Remove saved item/ })
+      .first()
+      .click()
+    await expect(
+      page.getByText(
+        'No saved products yet. Save products from their detail pages.',
+        { exact: true },
+      ),
+    ).toBeVisible()
+    expect(reads).toBe(1)
+    const response = page.waitForResponse((value) =>
+      value.url().endsWith('/v1/wishlist/' + products[0].id),
+    )
+    release()
+    await response
+    await expect(
+      page.getByText(
+        'No saved products yet. Save products from their detail pages.',
+        { exact: true },
+      ),
+    ).toBeVisible()
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('a delayed initial wishlist read cannot erase an already saved heart', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let reads = 0,
+    release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/wishlist', async (route) => {
+    reads++
+    await gate
+    await route.fulfill({ json: wishlistPayload() })
+  })
+  await page.route('**/v1/wishlist/' + products[0].id, (route) =>
+    route.fulfill({ json: wishlistPayload(products[0]) }),
+  )
+  try {
+    await openControlled(page, '/shop')
+    await page
+      .getByRole('button', {
+        name: 'Save item: ' + products[0].title,
+        exact: true,
+      })
+      .click()
+    const heart = page.getByRole('button', {
+      name: 'Remove saved item: ' + products[0].title,
+      exact: true,
+    })
+    await expect(heart).toHaveAttribute('aria-pressed', 'true')
+    const response = page.waitForResponse((value) =>
+      value.url().endsWith('/v1/wishlist'),
+    )
+    release()
+    await response
+    await expect(heart).toHaveAttribute('aria-pressed', 'true')
+    expect(reads).toBe(1)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('account switching fences a delayed wishlist write from the previous owner', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let current = user,
+    reads = 0,
+    release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/api/auth/session', (route) =>
+    route.fulfill({
+      json: {
+        accessToken: 'controlled-wishlist-session-token',
+        tokenType: 'Bearer',
+        expiresIn: 900,
+        user: current,
+      },
+    }),
+  )
+  await page.route('**/v1/auth/me', (route) => route.fulfill({ json: current }))
+  await page.route('**/v1/account/profile', (route) =>
+    route.fulfill({
+      json: {
+        ...current,
+        displayName: 'Current owner',
+        emailVerified: true,
+        createdAt: new Date().toISOString(),
+      },
+    }),
+  )
+  await page.route('**/v1/wishlist', (route) => {
+    reads++
+    return route.fulfill({
+      json:
+        current.id === user.id
+          ? wishlistPayload()
+          : wishlistPayload(products[2]),
+    })
+  })
+  await page.route('**/v1/wishlist/' + products[0].id, async (route) => {
+    await gate
+    await route.fulfill({ json: wishlistPayload(products[0]) }).catch(() => {})
+  })
+  try {
+    await openControlled(page, '/shop')
+    await page
+      .getByRole('button', {
+        name: 'Save item: ' + products[0].title,
+        exact: true,
+      })
+      .click()
+    await expect(
+      page.getByRole('button', {
+        name: 'Remove saved item: ' + products[0].title,
+        exact: true,
+      }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    current = { ...user, id: id(97), email: 'wishlist-owner-b@example.test' }
+    await page.evaluate(() => {
+      const channel = new BroadcastChannel('eshop-auth-customer')
+      channel.postMessage({ type: 'login', source: 'other-wishlist-tab' })
+      channel.close()
+    })
+    const ownerBHeart = page.getByRole('button', {
+      name: 'Remove saved item: ' + products[2].title,
+      exact: true,
+    })
+    await expect(ownerBHeart).toHaveAttribute('aria-pressed', 'true')
+    release()
+    await expect(
+      page.getByRole('button', {
+        name: 'Save item: ' + products[0].title,
+        exact: true,
+      }),
+    ).toHaveAttribute('aria-pressed', 'false')
+    await expect(ownerBHeart).toHaveAttribute('aria-pressed', 'true')
+    expect(reads).toBeGreaterThanOrEqual(2)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
 async function checkoutScenario(page, initialQuantity = 12) {
   await mock(page, {
     authenticated: true,

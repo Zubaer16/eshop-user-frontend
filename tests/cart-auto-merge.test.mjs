@@ -56,7 +56,11 @@ const settle = async () => {
   for (let i = 0; i < 10; i++)
     await new Promise((resolve) => setImmediate(resolve))
 }
-function createHarness({ guest = null, firstAccount = null } = {}) {
+function createHarness({
+  guest = null,
+  firstAccount = null,
+  wishlistRequest,
+} = {}) {
   const saved = new Map()
   const storage = {
     failSet: '',
@@ -86,7 +90,7 @@ function createHarness({ guest = null, firstAccount = null } = {}) {
       listeners.add(cb)
       return () => listeners.delete(cb)
     },
-    request: async () => ({ items: [], count: 0 }),
+    request: wishlistRequest || (async () => ({ items: [], count: 0 })),
   }
   const createStore = (initializer) => {
     let state = initializer()
@@ -257,6 +261,395 @@ test('claimed guest items are hidden after logout; fresh guest shopping starts e
       2,
     )
   } finally {
+    h.close()
+  }
+})
+
+const wishItem = (n) => ({
+  productId: uid(n),
+  slug: 'product-' + n,
+  title: 'Product ' + n,
+  currency: 'USD',
+  priceMinor: n * 100,
+  addedAt: new Date().toISOString(),
+})
+const wishlistOf = (...items) => ({ items, count: items.length })
+const gate = () => {
+  let resolve
+  const promise = new Promise((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+test('wishlist adds and removes immediately and successful mutations avoid a follow-up GET', async () => {
+  const add = gate(),
+    remove = gate()
+  let reads = 0
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) {
+        reads++
+        return wishlistOf()
+      }
+      await (options.method === 'PUT' ? add.promise : remove.promise)
+      return options.method === 'PUT'
+        ? wishlistOf(wishItem(1))
+        : { removed: true }
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    const saving = h.state().save(uid(1), true, wishItem(1))
+    assert.equal(h.state().wishlist.count, 1)
+    add.resolve()
+    assert.equal(await saving, true)
+    const removing = h.state().save(uid(1), false)
+    assert.equal(h.state().wishlist.count, 0)
+    remove.resolve()
+    assert.equal(await removing, true)
+    assert.equal(reads, 1)
+  } finally {
+    add.resolve()
+    remove.resolve()
+    h.close()
+  }
+})
+
+test('rapid wishlist toggles keep the latest visible choice and coalesce a fulfilled final intent', async () => {
+  const pending = gate()
+  const writes = []
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) return wishlistOf()
+      writes.push(options.method)
+      await pending.promise
+      return wishlistOf(wishItem(1))
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    const first = h.state().save(uid(1), true, wishItem(1))
+    const second = h.state().save(uid(1), false)
+    assert.equal(h.state().wishlist.count, 0)
+    const third = h.state().save(uid(1), true, wishItem(1))
+    assert.equal(h.state().wishlist.count, 1)
+    pending.resolve()
+    await Promise.all([first, second, third])
+    assert.deepEqual(writes, ['PUT'])
+    assert.equal(h.state().wishlist.count, 1)
+  } finally {
+    pending.resolve()
+    h.close()
+  }
+})
+
+test('an opposite queued wishlist intent follows the in-flight write in order', async () => {
+  const pending = gate()
+  const writes = []
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) return wishlistOf()
+      writes.push(options.method)
+      if (options.method === 'PUT') {
+        await pending.promise
+        return wishlistOf(wishItem(1))
+      }
+      return { removed: true }
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    const first = h.state().save(uid(1), true, wishItem(1))
+    const second = h.state().save(uid(1), false)
+    assert.equal(h.state().wishlist.count, 0)
+    pending.resolve()
+    await Promise.all([first, second])
+    assert.deepEqual(writes, ['PUT', 'DELETE'])
+    assert.equal(h.state().wishlist.count, 0)
+  } finally {
+    pending.resolve()
+    h.close()
+  }
+})
+
+test('a canonical PUT response preserves another optimistic product while its write is queued', async () => {
+  const one = gate(),
+    two = gate()
+  const h = createHarness({
+    wishlistRequest: async (route, options) => {
+      if (!options) return wishlistOf()
+      if (route.endsWith(uid(1))) {
+        await one.promise
+        return wishlistOf(wishItem(1))
+      }
+      await two.promise
+      return wishlistOf(wishItem(1), wishItem(2))
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    const first = h.state().save(uid(1), true, wishItem(1))
+    const second = h.state().save(uid(2), true, wishItem(2))
+    assert.equal(h.state().wishlist.count, 2)
+    one.resolve()
+    await settle()
+    assert.equal(h.state().wishlist.count, 2)
+    two.resolve()
+    await Promise.all([first, second])
+    assert.equal(h.state().wishlist.count, 2)
+  } finally {
+    one.resolve()
+    two.resolve()
+    h.close()
+  }
+})
+
+test('a rejected wishlist write rolls back that product and remains retryable', async () => {
+  let writes = 0
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) return wishlistOf(wishItem(2))
+      if (++writes === 1)
+        throw Object.assign(new Error('Wishlist limit reached'), {
+          status: 409,
+        })
+      return wishlistOf(wishItem(1), wishItem(2))
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    assert.equal(await h.state().save(uid(1), true, wishItem(1)), false)
+    assert.deepEqual(
+      h.state().wishlist.items.map((item) => item.productId),
+      [uid(2)],
+    )
+    assert.equal(h.state().wishError, 'Wishlist limit reached')
+    assert.equal(await h.state().save(uid(1), true, wishItem(1)), true)
+    assert.equal(h.state().wishError, '')
+    assert.equal(h.state().wishlist.count, 2)
+  } finally {
+    h.close()
+  }
+})
+
+test('a transport failure after commit reconciles wishlist state with an exceptional GET', async () => {
+  let committed = false,
+    reads = 0
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) {
+        reads++
+        return committed ? wishlistOf(wishItem(1)) : wishlistOf()
+      }
+      committed = true
+      throw Object.assign(new Error('Response lost'), { status: 503 })
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    assert.equal(await h.state().save(uid(1), true, wishItem(1)), false)
+    assert.equal(h.state().wishlist.count, 1)
+    assert.equal(reads, 2)
+    assert.equal(h.state().wishError, 'Response lost')
+  } finally {
+    h.close()
+  }
+})
+
+test('an older wishlist GET cannot overwrite a completed optimistic write', async () => {
+  const pending = gate()
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) {
+        await pending.promise
+        return wishlistOf()
+      }
+      return wishlistOf(wishItem(1))
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    assert.equal(await h.state().save(uid(1), true, wishItem(1)), true)
+    pending.resolve()
+    await settle()
+    assert.equal(h.state().wishlist.count, 1)
+    assert.equal(h.state().wishLoading, false)
+  } finally {
+    pending.resolve()
+    h.close()
+  }
+})
+
+test('account switches fence old wishlist writes while the replacement account can save independently', async () => {
+  const old = gate(),
+    current = gate()
+  let writes = 0
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) return wishlistOf()
+      if (++writes === 1) {
+        await old.promise
+        return wishlistOf(wishItem(1))
+      }
+      await current.promise
+      return wishlistOf(wishItem(2))
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    const first = h.state().save(uid(1), true, wishItem(1))
+    h.session(uid(92))
+    await settle()
+    assert.equal(h.state().wishlist.count, 0)
+    const second = h.state().save(uid(2), true, wishItem(2))
+    old.resolve()
+    await first
+    assert.deepEqual(
+      h.state().wishlist.items.map((item) => item.productId),
+      [uid(2)],
+    )
+    current.resolve()
+    assert.equal(await second, true)
+    assert.deepEqual(
+      h.state().wishlist.items.map((item) => item.productId),
+      [uid(2)],
+    )
+  } finally {
+    old.resolve()
+    current.resolve()
+    h.close()
+  }
+})
+
+test('an explicit wishlist refresh waits for pending intents and reads the settled server list', async () => {
+  const pending = gate()
+  let reads = 0,
+    committed = false
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) {
+        reads++
+        return committed ? wishlistOf(wishItem(1)) : wishlistOf()
+      }
+      await pending.promise
+      committed = true
+      return wishlistOf(wishItem(1))
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    const saving = h.state().save(uid(1), true, wishItem(1))
+    h.state().reload()
+    await settle()
+    assert.equal(reads, 1)
+    assert.equal(h.state().wishlist.count, 1)
+    pending.resolve()
+    await saving
+    await settle()
+    assert.equal(reads, 2)
+    assert.equal(h.state().wishlist.count, 1)
+  } finally {
+    pending.resolve()
+    h.close()
+  }
+})
+
+test('a cold failed wishlist add restores existing server items while ignoring the older initial read', async () => {
+  const initial = gate()
+  let reads = 0
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) {
+        if (++reads === 1) {
+          await initial.promise
+          return wishlistOf()
+        }
+        return wishlistOf(wishItem(2))
+      }
+      throw Object.assign(new Error('Product unavailable'), { status: 404 })
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    assert.equal(await h.state().save(uid(1), true, wishItem(1)), false)
+    assert.deepEqual(
+      h.state().wishlist.items.map((item) => item.productId),
+      [uid(2)],
+    )
+    initial.resolve()
+    await settle()
+    assert.deepEqual(
+      h.state().wishlist.items.map((item) => item.productId),
+      [uid(2)],
+    )
+    assert.equal(reads, 2)
+  } finally {
+    initial.resolve()
+    h.close()
+  }
+})
+
+test('the existing 100-product wishlist limit prevents an invalid optimistic addition', async () => {
+  let writes = 0
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (options) writes++
+      return wishlistOf(
+        ...Array.from({ length: 100 }, (_, index) => wishItem(index + 1)),
+      )
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    assert.equal(await h.state().save(uid(200), true, wishItem(200)), false)
+    assert.equal(h.state().wishlist.count, 100)
+    assert.equal(writes, 0)
+    assert.equal(h.state().wishError, 'Wishlist cannot exceed 100 products')
+  } finally {
+    h.close()
+  }
+})
+
+test('pausing readiness fences a pending wishlist write and restores a fresh server snapshot on resume', async () => {
+  const pending = gate()
+  let committed = false
+  const h = createHarness({
+    wishlistRequest: async (_route, options) => {
+      if (!options) return committed ? wishlistOf(wishItem(1)) : wishlistOf()
+      if (options.method === 'DELETE') return { removed: true }
+      await pending.promise
+      committed = true
+      return wishlistOf(wishItem(1))
+    },
+  })
+  try {
+    h.session(uid(91))
+    await settle()
+    const saving = h.state().save(uid(1), true, wishItem(1))
+    h.commerce.setReady(false)
+    assert.equal(h.state().wishlist, null)
+    pending.resolve()
+    assert.equal(await saving, false)
+    assert.equal(h.state().wishlist, null)
+    h.commerce.setReady(true)
+    await settle()
+    assert.equal(h.state().wishlist.count, 1)
+    assert.equal(await h.state().save(uid(1), false), true)
+    assert.equal(h.state().wishlist.count, 0)
+  } finally {
+    pending.resolve()
     h.close()
   }
 })

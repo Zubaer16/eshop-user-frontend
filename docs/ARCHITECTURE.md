@@ -1,5 +1,26 @@
 # Storefront architecture
 
+## Optimistic account wishlist interactions - 2026-11-14
+
+The owner approved immediate wishlist interaction using Zustand memory state with account-backed server persistence. Product-card hearts, product-detail Save/Remove controls, the header count and the Saved items grid now update before the write response. Visible product metadata supplies the optimistic row. New rows appear first. Errors leave controls retryable. The existing 100-product limit also bounds new optimistic additions when the visible list is already full.
+
+The provider keeps a confirmed wishlist snapshot and an overlay of latest per-product intents. Writes are serialized. Rapid changes update the visible intent immediately, while a successful response satisfying the latest requested state clears redundant queued work. Each PUT consumes its existing canonical Wishlist response. A successful DELETE updates the confirmed list locally. Normal successful mutations use the existing write endpoint without an additional wishlist GET.
+
+Definitive rejections roll back the affected intent while retaining other optimistic products. Network/timeouts/server errors can follow a committed write, so those failures read the authoritative wishlist before continuing. A failed add with an unknown initial snapshot also reconciles to recover pre-existing server items. Explicit refresh during writes is deferred until pending intents settle. Generation checks prevent an older GET from replacing newer optimistic/confirmed state.
+
+Customer identity, session epoch and provider lifecycle leases fence requests and responses. Logout/account changes clear the confirmed snapshot and queued intents. An old owner's completion cannot update the replacement owner's heart/count/list or clear its independent write task. Optimistic wishlist state lives in browser memory, with persistence through the existing customer wishlist API. The current API's customer authentication, ownership, publication checks and database limit remain authoritative.
+
+Provider readiness pauses clear and fence pending wishlist state. Resuming readiness reloads the server snapshot. The shared lifecycle reset is used for readiness, ownership changes and unmount cleanup.
+
+### Executed validation
+
+- Storefront production build with type checking, lint and project verification passed. All 83 unit tests and 52 production-browser tests passed with zero retries or skips. Git diff whitespace checks passed.
+- Twelve new store regressions exercise immediate add/remove, no extra GET on normal success, rapid-toggle coalescing, ordered opposite intent, multiple optimistic products, rollback/retry, transport failure after commit, stale initial GET fencing, account switch during writes, deferred explicit refresh, cold-failure reconciliation, the existing 100-item limit and readiness pause/resume. Some regressions cover more than one boundary.
+- Five new production-browser tests verify heart/count changes while PUT is delayed, rejection rollback plus another click, immediate removal from Saved items while DELETE is delayed, stale initial GET protection and a delayed account-A write during account-B restoration. Writes and owned reads are browser-intercepted test fixtures.
+- Existing cache isolation, address/profile/preference preload, order prefetch, checkout recovery, shortage correction, uncertain Stripe retry, payment return, cart concurrency and CSP browser coverage passed.
+
+This batch changes User Frontend code. Source commit/push and live application deployment remain pending.
+
 ## Isolated account preload and navigation cache - 2026-11-14
 
 The owner approved preloading the recommended customer data while preserving account isolation. Storefront now starts saved-address, profile and notification-preference GETs in the background after login or authenticated session restoration. Account/address pages and checkout consume shared reads. Ordinary checkout immediately renders its form and summary, with a local address-loading status when the cache is cold. Stripe return recovery and payment-button checks continue through the existing checkout flow.

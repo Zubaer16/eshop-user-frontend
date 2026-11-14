@@ -45,14 +45,12 @@ export function ErrorMessage({ text }: { text: string }) {
 export function SaveProductButton({
   product,
 }: {
-  product: Pick<Product, 'id' | 'slug'>
+  product: Pick<Product, 'id' | 'slug' | 'title' | 'currency' | 'priceMinor'>
 }) {
   const shopping = useCommerce(
     useShallow((state) => ({
       authenticated: state.authenticated,
-      loading: state.wishLoading,
       busy: state.busy,
-      wishError: state.wishError,
       save: state.save,
       saved:
         state.wishlist?.items.some((item) => item.productId === product.id) ||
@@ -65,11 +63,9 @@ export function SaveProductButton({
       type="button"
       className="min-h-10 rounded-xl border border-slate-200 px-3 text-sm font-bold text-primary disabled:opacity-50"
       aria-pressed={saved}
-      disabled={
-        shopping.loading || shopping.busy || Boolean(shopping.wishError)
-      }
+      disabled={shopping.busy}
       onClick={() => {
-        void shopping.save(product.id, !saved)
+        void shopping.save(product.id, !saved, product)
       }}
     >
       {saved ? 'Remove saved item' : 'Save item'}
@@ -509,7 +505,7 @@ export function WishlistPage() {
       >
         Refresh saved items
       </button>
-      {shopping.wishLoading || (!shopping.wishlist && !shopping.wishError) ? (
+      {!shopping.wishlist && !shopping.wishError ? (
         <p role="status">Loading saved items…</p>
       ) : (
         shopping.wishlist && (

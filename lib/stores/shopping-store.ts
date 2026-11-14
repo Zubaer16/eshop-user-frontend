@@ -1,5 +1,5 @@
 'use client'
-import { createStore } from 'zustand/vanilla'
+import { createStore, type StoreApi } from 'zustand/vanilla'
 import { api } from '@/lib/api/client'
 import {
   readWishlist,
@@ -16,6 +16,16 @@ import {
   localQuote,
   checkoutItems,
 } from './local-cart'
+
+type WishlistProduct = Pick<
+  Wishlist['items'][number],
+  'slug' | 'title' | 'currency' | 'priceMinor'
+>
+type WishlistIntent = {
+  wanted: boolean
+  item?: Wishlist['items'][number]
+  failed: boolean
+}
 
 export type Commerce = {
   owner: string
@@ -39,7 +49,11 @@ export type Commerce = {
   remove: (id: string) => Promise<boolean>
   clear: () => Promise<boolean>
   retryGuestMerge: () => void
-  save: (id: string, wanted: boolean) => Promise<boolean>
+  save: (
+    id: string,
+    wanted: boolean,
+    product?: WishlistProduct,
+  ) => Promise<boolean>
   rememberCheckout: (
     requestId: string,
     items: ReturnType<typeof checkoutItems>,
@@ -54,11 +68,15 @@ export function createCommerceStore() {
   let storageKey = ''
   let checkoutLease = 0
   let wishGeneration = 0
-  let wishWriting = false
+  let wishTask: Promise<void> | null = null
+  let wishLease = 0
+  let wishRefresh = false
+  let confirmedWishlist: Wishlist | null = null
+  const wishIntents = new Map<string, WishlistIntent>()
   let mergingOwner: string | null = null
   let failedMergeOwner: string | null = null
   const memoryCarts = new Map<string, CartQuote>()
-  const store = createStore<Commerce>(() => ({
+  const store: StoreApi<Commerce> = createStore<Commerce>(() => ({
     owner: '',
     authenticated: false,
     cart: null,
@@ -175,13 +193,15 @@ export function createCommerceStore() {
     // its deletion. Do not show those claimed items after logout.
     const hiddenGuest =
       session.status === 'anonymous' &&
-      guestAlreadyAssigned((() => {
-        try {
-          return window.localStorage.getItem(storageKey)
-        } catch {
-          return null
-        }
-      })())
+      guestAlreadyAssigned(
+        (() => {
+          try {
+            return window.localStorage.getItem(storageKey)
+          } catch {
+            return null
+          }
+        })(),
+      )
     const cart = hiddenGuest ? localQuote([]) : read(storageKey, get().cart)
     // Guest items are an internal storage detail, never a separate visible cart.
     const hasGuest =
@@ -347,7 +367,9 @@ export function createCommerceStore() {
         failedMergeOwner = owner
         store.setState({
           guestMergeError:
-            (error instanceof Error ? error.message : 'Could not combine your items.') +
+            (error instanceof Error
+              ? error.message
+              : 'Could not combine your items.') +
             ' Your previous items remain saved in this browser.',
         })
       }
@@ -405,17 +427,52 @@ export function createCommerceStore() {
       hydrate()
     }
   }
+  function resetWishlist() {
+    wishGeneration++
+    wishLease++
+    wishTask = null
+    wishRefresh = false
+    confirmedWishlist = null
+    wishIntents.clear()
+  }
+  function wishlistActive(owner: string, lease: number) {
+    return started && ready && get().owner === owner && wishLease === lease
+  }
+  function publishWishlist() {
+    const items = new Map(
+      (confirmedWishlist?.items ?? []).map((item) => [item.productId, item]),
+    )
+    const additions: Wishlist['items'] = []
+    for (const [id, intent] of wishIntents) {
+      if (!intent.wanted) items.delete(id)
+      else if (intent.item && !items.has(id)) additions.unshift(intent.item)
+    }
+    store.setState({
+      wishlist: {
+        items: [...additions, ...items.values()],
+        count: additions.length + items.size,
+      },
+    })
+  }
   async function loadWishlist() {
     const owner = get().owner
-    const generation = ++wishGeneration
+    const lease = wishLease
     if (!get().authenticated || !ready) return
+    if (wishTask) {
+      wishRefresh = true
+      return
+    }
+    const generation = ++wishGeneration
     store.setState({ wishLoading: true })
     try {
       const wishlist = readWishlist(await api.request('/v1/wishlist'))
-      if (owner === get().owner && generation === wishGeneration)
-        store.setState({ wishlist, wishError: '' })
+      if (wishlistActive(owner, lease) && generation === wishGeneration) {
+        confirmedWishlist = wishlist
+        publishWishlist()
+        store.setState({ wishError: '' })
+      }
     } catch (error) {
-      if (owner === get().owner && generation === wishGeneration)
+      if (wishlistActive(owner, lease) && generation === wishGeneration)
         store.setState({
           wishError:
             error instanceof Error
@@ -423,24 +480,127 @@ export function createCommerceStore() {
               : 'Could not load saved items.',
         })
     } finally {
-      if (owner === get().owner && generation === wishGeneration)
+      if (wishlistActive(owner, lease) && generation === wishGeneration)
         store.setState({ wishLoading: false })
     }
   }
-  async function save(id: string, wanted: boolean) {
+  async function flushWishlist(owner: string, lease: number) {
+    while (wishlistActive(owner, lease) && wishIntents.size) {
+      const [id, intent] = wishIntents.entries().next().value!
+      const wanted = intent.wanted
+      try {
+        const result = await api.request('/v1/wishlist/' + id, {
+          method: wanted ? 'PUT' : 'DELETE',
+        })
+        if (!wishlistActive(owner, lease)) return
+        if (wanted) confirmedWishlist = readWishlist(result)
+        else if (confirmedWishlist) {
+          const items = confirmedWishlist.items.filter(
+            (item) => item.productId !== id,
+          )
+          confirmedWishlist = { items, count: items.length }
+        } else {
+          confirmedWishlist = readWishlist(await api.request('/v1/wishlist'))
+          if (!wishlistActive(owner, lease)) return
+        }
+        if (wishIntents.get(id)?.wanted === wanted) wishIntents.delete(id)
+        publishWishlist()
+      } catch (error) {
+        if (!wishlistActive(owner, lease)) return
+        intent.failed = true
+        if (wishIntents.get(id)?.wanted === wanted) wishIntents.delete(id)
+        publishWishlist()
+        store.setState({
+          wishError:
+            error instanceof Error
+              ? error.message
+              : 'Could not save this product.',
+        })
+        // A failed transport can follow a committed write. Read current state before continuing.
+        const status = (error as { status?: number })?.status
+        if (
+          !confirmedWishlist ||
+          !status ||
+          status >= 500 ||
+          status === 408 ||
+          status === 499
+        ) {
+          try {
+            const wishlist = readWishlist(await api.request('/v1/wishlist'))
+            if (!wishlistActive(owner, lease)) return
+            confirmedWishlist = wishlist
+            publishWishlist()
+          } catch {
+            // Keep the confirmed snapshot and visible retry/refresh error.
+          }
+        }
+      }
+    }
+  }
+  async function save(
+    id: string,
+    wanted: boolean,
+    product?: WishlistProduct,
+  ): Promise<boolean> {
     const owner = get().owner
-    guard(owner)
-    if (!get().authenticated || wishWriting) return false
-    wishWriting = true
+    const lease = wishLease
     try {
-      await api.request('/v1/wishlist/' + id, {
-        method: wanted ? 'PUT' : 'DELETE',
-      })
       guard(owner)
-      await loadWishlist()
-      return true
+      if (!get().authenticated) return false
+      id = validateSelection({
+        productId: id,
+        variantId: null,
+        quantity: 1,
+      }).productId
+      let item =
+        get().wishlist?.items.find((row) => row.productId === id) ??
+        confirmedWishlist?.items.find((row) => row.productId === id)
+      if (wanted && product)
+        item = readWishlist({
+          items: [
+            {
+              slug: product.slug,
+              title: product.title,
+              currency: product.currency,
+              priceMinor: product.priceMinor,
+              productId: id,
+              addedAt: new Date().toISOString(),
+            },
+          ],
+          count: 1,
+        }).items[0]
+      if (
+        wanted &&
+        !get().wishlist?.items.some((row) => row.productId === id) &&
+        (get().wishlist?.count ?? 0) >= 100
+      )
+        throw new Error('Wishlist cannot exceed 100 products')
+      const intent: WishlistIntent = { wanted, item, failed: false }
+      wishIntents.set(id, intent)
+      wishGeneration++
+      store.setState({ wishError: '', wishLoading: false })
+      publishWishlist()
+      if (!wishTask) {
+        const task = flushWishlist(owner, lease)
+        wishTask = task
+        void task.finally(() => {
+          if (wishTask !== task) return
+          wishTask = null
+          if (wishlistActive(owner, lease) && wishRefresh) {
+            wishRefresh = false
+            void loadWishlist()
+          }
+        })
+      }
+      await wishTask
+      return (
+        !intent.failed &&
+        wishlistActive(owner, lease) &&
+        Boolean(get().wishlist?.items.some((row) => row.productId === id)) ===
+          wanted
+      )
     } catch (error) {
-      if (owner === get().owner)
+      if (wishlistActive(owner, lease))
         store.setState({
           wishError:
             error instanceof Error
@@ -448,8 +608,6 @@ export function createCommerceStore() {
               : 'Could not save this product.',
         })
       return false
-    } finally {
-      if (owner === get().owner) wishWriting = false
     }
   }
   function syncSession() {
@@ -457,8 +615,7 @@ export function createCommerceStore() {
     const owner = ownerOf()
     if (owner !== get().owner) {
       checkoutLease++
-      wishGeneration++
-      wishWriting = false
+      resetWishlist()
       storageKey = cartStorageKey(
         session.status === 'authenticated' ? session.user!.id : undefined,
       )
@@ -481,6 +638,10 @@ export function createCommerceStore() {
     }
   }
   function setReady(value: boolean) {
+    if (!value && ready) {
+      resetWishlist()
+      store.setState({ wishlist: null, wishLoading: false, wishError: '' })
+    }
     const becameReady = value && !ready
     ready = value
     syncSession()
@@ -508,7 +669,7 @@ export function createCommerceStore() {
     window.addEventListener('storage', storage)
     return () => {
       started = false
-      wishGeneration++
+      resetWishlist()
       checkoutLease++
       unsubscribe()
       window.removeEventListener('storage', storage)

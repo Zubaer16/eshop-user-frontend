@@ -107,11 +107,9 @@ export function ProductCard({
             (saved ? 'Remove saved item: ' : 'Save item: ') + product.title
           }
           aria-pressed={saved}
-          disabled={
-            shopping.loading || shopping.busy || Boolean(shopping.wishError)
-          }
+          disabled={shopping.loading || shopping.busy}
           onClick={() => {
-            void shopping.save(product.id, !saved)
+            void shopping.save(product.id, !saved, product)
           }}
           className="absolute right-3 top-3 flex size-11 items-center justify-center rounded-full bg-white/95 text-muted shadow-sm transition hover:text-primary disabled:opacity-40"
         >
