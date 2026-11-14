@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, accountData } from '@/lib/api/client'
 import { accountKey, accountOwner } from '@/lib/account-cache'
 
@@ -15,9 +15,14 @@ export function useAccountResource<T>(
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(!data)
   const [revision, setRevision] = useState(0)
+  const context = owner + ':' + key
+  const previousContext = useRef(context)
   useEffect(() => {
     let active = true
-    setData(accountData.peek<T>(route, query, true))
+    const cached = accountData.peek<T>(route, query, true)
+    const sameContext = previousContext.current === context
+    setData((previous) => cached ?? (sameContext ? previous : null))
+    previousContext.current = context
     setLoading(true)
     setError('')
     void accountData

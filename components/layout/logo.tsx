@@ -2,7 +2,7 @@
 import Image from 'next/image'
 import { useStoreConfiguration } from '@/components/store/store-content'
 import { imageUrl } from '@/lib/api/catalog'
-import Link from 'next/link'
+import Link from '@/components/ui/app-link'
 
 export function Logo({ light = false }: { light?: boolean }) {
   const store = useStoreConfiguration(),

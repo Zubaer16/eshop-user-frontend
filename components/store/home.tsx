@@ -2,7 +2,8 @@
 'use client'
 
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import Link from 'next/link'
+import Link from '@/components/ui/app-link'
+import { PendingButton } from '@/components/ui/pending-button'
 import {
   ArrowRight,
   ArrowUpRight,
@@ -572,10 +573,12 @@ function BottomPromotion() {
 
 export function Homepage({
   data,
+  refreshing,
   supportNotice,
   onRefresh,
 }: {
   data: Home
+  refreshing: boolean
   supportNotice?: string
   onRefresh: () => void
 }) {
@@ -662,13 +665,15 @@ export function Homepage({
       <BottomPromotion />
 
       <div className="container-shell -mt-8 flex justify-end pb-8">
-        <button
+        <PendingButton
+          busy={refreshing}
+          pendingLabel="Refreshing featured content…"
           type="button"
           onClick={onRefresh}
           className="text-xs font-bold text-muted underline decoration-border underline-offset-4 transition hover:text-primary"
         >
           Refresh featured content
-        </button>
+        </PendingButton>
       </div>
     </>
   )

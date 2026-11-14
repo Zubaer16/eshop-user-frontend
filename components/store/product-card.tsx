@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element -- Validated public media URLs. */
 'use client'
 
-import Link from 'next/link'
+import Link from '@/components/ui/app-link'
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowRight, Box, Heart, Plus } from 'lucide-react'

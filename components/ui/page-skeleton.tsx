@@ -15,12 +15,12 @@ function Shape({ className }: ShapeProps) {
 export function PageSkeleton({
   variant,
 }: {
-  variant: 'shop' | 'product' | 'account' | 'checkout'
+  variant: 'shop' | 'product' | 'account' | 'checkout' | 'grid' | 'list'
 }) {
   const label = 'Loading content'
   return (
     <section
-      className="container-shell pb-20 pt-9 sm:pt-12"
+      className="loading-reveal container-shell pb-20 pt-9 sm:pt-12"
       role="status"
       aria-label={label}
       aria-busy="true"
@@ -49,6 +49,18 @@ export function PageSkeleton({
             ))}
           </div>
         </div>
+      ) : variant === 'grid' ? (
+        <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: 8 }, (_, index) => (
+            <Shape key={index} className="aspect-[3/4]" />
+          ))}
+        </div>
+      ) : variant === 'list' ? (
+        <div className="mt-8 space-y-5">
+          {Array.from({ length: 4 }, (_, index) => (
+            <Shape key={index} className="h-24 w-full" />
+          ))}
+        </div>
       ) : (
         <div className="mt-8 grid gap-6 md:grid-cols-[minmax(0,1fr)_300px]">
           <div className="space-y-4">
@@ -60,5 +72,43 @@ export function PageSkeleton({
         </div>
       )}
     </section>
+  )
+}
+
+export function ContentSkeleton({
+  variant = 'list',
+  label = 'Loading content',
+}: {
+  variant?: 'grid' | 'list' | 'form' | 'home'
+  label?: string
+}) {
+  return (
+    <div
+      role="status"
+      aria-label={label}
+      aria-busy="true"
+      className="loading-reveal"
+    >
+      <span className="sr-only">{label}</span>
+      {variant === 'home' && (
+        <Shape className="mb-7 h-[380px] w-full rounded-3xl" />
+      )}
+      {variant === 'grid' || variant === 'home' ? (
+        <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <Shape key={index} className="aspect-[3/4]" />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {Array.from({ length: 3 }, (_, index) => (
+            <Shape
+              key={index}
+              className={variant === 'form' ? 'h-14 w-full' : 'h-28 w-full'}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

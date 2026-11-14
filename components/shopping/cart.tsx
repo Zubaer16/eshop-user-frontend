@@ -1,6 +1,8 @@
 /* eslint-disable @next/next/no-img-element -- Validated public product media. */
 'use client'
-import Link from 'next/link'
+import { ContentSkeleton } from '@/components/ui/page-skeleton'
+import { PendingButton } from '@/components/ui/pending-button'
+import Link from '@/components/ui/app-link'
 import { useEffect, useId, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
@@ -382,7 +384,7 @@ export function CartContents({ fullPage = false }: { fullPage?: boolean }) {
         </p>
       )}
       {shopping.loading ? (
-        <p role="status">Loading your cart…</p>
+        <ContentSkeleton variant="list" label="Loading your cart" />
       ) : !quote?.items.length ? (
         <div className="flex min-h-[420px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-[#fbfcff] p-6 text-center">
           <ShoppingBag size={44} className="mb-5 text-primary" />
@@ -498,15 +500,17 @@ export function WishlistPage() {
         legitimately republished.
       </p>
       <ErrorMessage text={shopping.wishError} />
-      <button
+      <PendingButton
+        busy={shopping.wishLoading}
+        pendingLabel="Refreshing saved items…"
         className="my-5 text-sm font-bold text-primary"
         disabled={shopping.busy}
         onClick={shopping.reload}
       >
         Refresh saved items
-      </button>
+      </PendingButton>
       {!shopping.wishlist && !shopping.wishError ? (
-        <p role="status">Loading saved items…</p>
+        <ContentSkeleton variant="grid" label="Loading saved items" />
       ) : (
         shopping.wishlist && (
           <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-3 lg:grid-cols-4">

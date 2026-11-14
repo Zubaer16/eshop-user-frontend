@@ -1,5 +1,7 @@
 'use client'
-import Link from 'next/link'
+import { ContentSkeleton } from '@/components/ui/page-skeleton'
+import { PendingButton } from '@/components/ui/pending-button'
+import Link from '@/components/ui/app-link'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '@/lib/api/client'
 import { money } from '@/lib/api/catalog'
@@ -23,10 +25,13 @@ import {
 
 export function OrderHistory() {
   const [page, setPage] = useState(1)
-  const { data, error, reload } = useAccountResource<OrderPage>('/v1/orders', {
-    page,
-    limit: 20,
-  })
+  const { data, error, reload, loading } = useAccountResource<OrderPage>(
+    '/v1/orders',
+    {
+      page,
+      limit: 20,
+    },
+  )
   return (
     <section className="container-shell max-w-5xl space-y-5 py-10">
       <h1 className="text-3xl font-black">Your orders</h1>
@@ -37,9 +42,14 @@ export function OrderHistory() {
         Owned orders, newest first. Payment and delivery states are separate.
       </p>
       <ErrorMessage text={error} />
-      <button className={actionClass} onClick={reload}>
+      <PendingButton
+        className={actionClass}
+        busy={loading}
+        pendingLabel="Refreshing orders…"
+        onClick={reload}
+      >
         Refresh orders
-      </button>
+      </PendingButton>
       {data ? (
         <>
           <div className="space-y-4">
@@ -91,7 +101,7 @@ export function OrderHistory() {
           </div>
         </>
       ) : (
-        !error && <p role="status">Loading your orders…</p>
+        !error && <ContentSkeleton variant="list" label="Loading your orders" />
       )}
     </section>
   )
@@ -213,13 +223,15 @@ export function OrderDetail({ id }: { id: string }) {
         Your orders
       </Link>
       <ErrorMessage text={resource.error || formError} />
-      <button
+      <PendingButton
+        busy={resource.loading}
+        pendingLabel="Refreshing order…"
         className={actionClass}
         disabled={resource.busy}
         onClick={() => void resource.refresh()}
       >
         Refresh order
-      </button>
+      </PendingButton>
       {resource.notice && (
         <p role="status" className="text-sm text-primary">
           {resource.notice}
@@ -413,7 +425,9 @@ export function OrderDetail({ id }: { id: string }) {
           )}
         </>
       ) : (
-        !resource.error && <p role="status">Loading order and ledgers…</p>
+        !resource.error && (
+          <ContentSkeleton variant="list" label="Loading order and ledgers" />
+        )
       )}
     </section>
   )

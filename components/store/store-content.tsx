@@ -1,4 +1,5 @@
 'use client'
+import { ContentSkeleton } from '@/components/ui/page-skeleton'
 import { createContext, useContext, useEffect, useState } from 'react'
 import { publicData, readPublic } from '@/lib/api/public-data'
 import { Homepage } from '@/components/store/home'
@@ -162,6 +163,7 @@ export function StoreHome({
       () => publicData.peek<Home>('/v1/store/homepage') || initial,
     ),
     [error, setError] = useState(''),
+    [refreshing, setRefreshing] = useState(false),
     [revision, setRevision] = useState(0),
     store = useStoreConfiguration()
   useEffect(() => {
@@ -169,6 +171,7 @@ export function StoreHome({
     if (initial && revision === 0)
       publicData.seed('/v1/store/homepage', {}, initial, expiresAt)
     setError('')
+    setRefreshing(true)
     void readPublic<Home>('/v1/store/homepage', {}, revision > 0)
       .then((value) => {
         if (active) setData(value)
@@ -176,11 +179,14 @@ export function StoreHome({
       .catch(() => {
         if (active) setError('Published store content is unavailable.')
       })
+      .finally(() => {
+        if (active) setRefreshing(false)
+      })
     return () => {
       active = false
     }
   }, [revision, initial, expiresAt])
-  if (error) {
+  if (error && !data) {
     return (
       <section className="container-shell py-12">
         <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
@@ -199,25 +205,33 @@ export function StoreHome({
     )
   }
 
-  if (!data) {
+  if (!data)
     return (
       <section className="container-shell py-12">
-        <p
-          role="status"
-          className="rounded-2xl border border-border bg-white p-6 text-sm text-muted"
-        >
-          Loading published store content…
-        </p>
+        <ContentSkeleton
+          variant="home"
+          label="Loading published store content"
+        />
       </section>
     )
-  }
 
   return (
-    <Homepage
-      data={data}
-      supportNotice={store.data?.profile.supportNotice || ''}
-      onRefresh={() => setRevision((value) => value + 1)}
-    />
+    <>
+      {error && (
+        <p
+          role="alert"
+          className="container-shell my-4 rounded-xl bg-red-50 p-4 text-sm text-red-800"
+        >
+          {error}
+        </p>
+      )}
+      <Homepage
+        data={data}
+        refreshing={refreshing}
+        supportNotice={store.data?.profile.supportNotice || ''}
+        onRefresh={() => setRevision((value) => value + 1)}
+      />
+    </>
   )
 }
 export function safeStorePath(value: string) {
@@ -283,7 +297,7 @@ export function CollectionPage({
           <CollectionProducts collection={data} />
         </>
       ) : (
-        <p role="status">Loading published collection…</p>
+        <ContentSkeleton variant="grid" label="Loading published collection" />
       )}
     </section>
   )
@@ -310,7 +324,7 @@ export function PolicyPage({ kind }: { kind: string }) {
       {store.error ? (
         <p role="alert">{store.error}</p>
       ) : !store.data ? (
-        <p role="status">Loading policy…</p>
+        <ContentSkeleton variant="list" label="Loading policy" />
       ) : (
         <p className="whitespace-pre-wrap text-sm leading-7">
           {key

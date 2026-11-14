@@ -1,6 +1,8 @@
 'use client'
+import { ContentSkeleton } from '@/components/ui/page-skeleton'
+import { PendingButton } from '@/components/ui/pending-button'
+import { useNavigationRouter } from '@/components/layout/navigation-provider'
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { api, accountData } from '@/lib/api/client'
 import {
   enableBrowserPush,
@@ -49,7 +51,7 @@ export function NotificationInbox() {
     }
   }, [])
   const { session } = useAuth(),
-    router = useRouter(),
+    router = useNavigationRouter(),
     [page, setPage] = useState(1),
     [unread, setUnread] = useState(false),
     [data, setData] = useState<Page | null>(null),
@@ -57,6 +59,8 @@ export function NotificationInbox() {
       accountData.peek('/v1/notifications/preferences'),
     ),
     [prefsLoading, setPrefsLoading] = useState(true),
+    [loading, setLoading] = useState(true),
+    [savingPreferences, setSavingPreferences] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
     [revision, setRevision] = useState(0),
@@ -65,10 +69,15 @@ export function NotificationInbox() {
   useEffect(() => {
     setDelivery(new URLSearchParams(window.location.search).get('delivery'))
   }, [])
+  const queryKey =
+    session.epoch + ':' + session.user?.id + ':' + page + ':' + unread
+  const previousQuery = useRef(queryKey)
   useEffect(() => {
     let active = true
     const c = new AbortController()
-    setData(null)
+    if (previousQuery.current !== queryKey) setData(null)
+    previousQuery.current = queryKey
+    setLoading(true)
     setPrefsLoading(true)
     setError('')
     void Promise.all([
@@ -94,11 +103,14 @@ export function NotificationInbox() {
       .catch((e) => {
         if (active) setError(e.message)
       })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
     return () => {
       active = false
       c.abort()
     }
-  }, [page, unread, revision])
+  }, [page, unread, revision, queryKey])
   const epoch = session.epoch,
     subject = session.user?.id
   function guard() {
@@ -175,13 +187,15 @@ export function NotificationInbox() {
         </button>
       )}
       <div className="flex flex-wrap items-center gap-4">
-        <button
+        <PendingButton
+          busy={loading}
+          pendingLabel="Refreshing inbox…"
           className={button}
           onClick={() => setRevision((v) => v + 1)}
           disabled={busy}
         >
           Refresh inbox
-        </button>
+        </PendingButton>
         <label className="text-sm">
           <input
             type="checkbox"
@@ -275,7 +289,7 @@ export function NotificationInbox() {
           </div>
         </>
       ) : (
-        !error && <p role="status">Loading inbox…</p>
+        !error && <ContentSkeleton variant="list" label="Loading inbox" />
       )}
       {prefs && (
         <form
@@ -296,6 +310,7 @@ export function NotificationInbox() {
                 )
               )
                 return
+            setSavingPreferences(true)
             void action(async () => {
               await api.request('/v1/notifications/preferences', {
                 method: 'PUT',
@@ -308,7 +323,7 @@ export function NotificationInbox() {
               })
               guard()
               setNotice('Notification preferences saved.')
-            })
+            }).finally(() => setSavingPreferences(false))
           }}
         >
           <h2 className="text-xl font-bold">Notification preferences</h2>
@@ -327,9 +342,14 @@ export function NotificationInbox() {
               </label>
             ))}
           </fieldset>
-          <button className={button} disabled={busy || prefsLoading}>
+          <PendingButton
+            busy={savingPreferences}
+            pendingLabel="Saving preferences…"
+            className={button}
+            disabled={busy || prefsLoading}
+          >
             Save notification preferences
-          </button>
+          </PendingButton>
         </form>
       )}
       <section className="space-y-3 rounded-2xl border p-5">

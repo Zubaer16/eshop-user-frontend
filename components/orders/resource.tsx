@@ -69,6 +69,7 @@ export function useOrderResource(
   const [data, setData] = useState<Bundle | null>(() =>
       admin ? null : cachedBundle(id),
     ),
+    [loading, setLoading] = useState(!data),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(''),
@@ -90,34 +91,40 @@ export function useOrderResource(
       throw new Error('The account changed. Reopen the order.')
   }
   async function load(force = false) {
-    guard()
-    if (!isOrderId(id)) throw new Error('Enter a canonical order UUID.')
     const ticket = ++generation.current
-    const read = <T,>(resource: string) =>
-      admin
-        ? api.request<T>(resource)
-        : accountData.read<T>(resource, {}, force)
-    const [order, returns, replacements, tracking, refunds] = await Promise.all(
-      [
-        read<OrderDetail>(route),
-        read<ReturnRow[]>(route + '/returns'),
-        read<ReplacementRow[]>(route + '/replacements'),
-        read<Tracking>(route + '/tracking'),
-        !admin || owner
-          ? read<RefundRow[]>(
-              (admin ? '/v1/admin/payments/orders/' : '/v1/payments/orders/') +
-                id +
-                '/refunds',
-            )
-          : Promise.resolve([] as RefundRow[]),
-      ],
-    )
-    guard()
-    if (ticket !== generation.current) return
-    setData(
-      checkedBundle({ order, returns, replacements, tracking, refunds }, id),
-    )
-    setError('')
+    setLoading(true)
+    try {
+      guard()
+      if (!isOrderId(id)) throw new Error('Enter a canonical order UUID.')
+      const read = <T,>(resource: string) =>
+        admin
+          ? api.request<T>(resource)
+          : accountData.read<T>(resource, {}, force)
+      const [order, returns, replacements, tracking, refunds] =
+        await Promise.all([
+          read<OrderDetail>(route),
+          read<ReturnRow[]>(route + '/returns'),
+          read<ReplacementRow[]>(route + '/replacements'),
+          read<Tracking>(route + '/tracking'),
+          !admin || owner
+            ? read<RefundRow[]>(
+                (admin
+                  ? '/v1/admin/payments/orders/'
+                  : '/v1/payments/orders/') +
+                  id +
+                  '/refunds',
+              )
+            : Promise.resolve([] as RefundRow[]),
+        ])
+      guard()
+      if (ticket !== generation.current) return
+      setData(
+        checkedBundle({ order, returns, replacements, tracking, refunds }, id),
+      )
+      setError('')
+    } finally {
+      if (active.current && ticket === generation.current) setLoading(false)
+    }
   }
   useEffect(() => {
     active.current = true
@@ -193,6 +200,7 @@ export function useOrderResource(
   }
   return {
     data,
+    loading,
     error,
     busy,
     notice,

@@ -1,4 +1,5 @@
 'use client'
+import { useNavigationRouter } from '@/components/layout/navigation-provider'
 import {
   createContext,
   useContext,
@@ -6,7 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { api, authChannelName, sessionSource } from '@/lib/api/client'
 import type { Session } from '@/lib/api/runtime'
 const Context = createContext<{ session: Session; ready: boolean } | null>(null)
@@ -67,7 +68,7 @@ export function useAuth() {
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { session, ready } = useAuth(),
     pathname = usePathname(),
-    router = useRouter()
+    router = useNavigationRouter()
   useEffect(() => {
     if (ready && session.status === 'anonymous')
       router.replace('/sign-in?next=' + encodeURIComponent(pathname))

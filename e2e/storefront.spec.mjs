@@ -61,6 +61,309 @@ test('returning to public pages reuses catalog and homepage data without another
   expect(homeReads).toBe(firstHomeReads)
 })
 
+test('slow search navigation shows progress and clears it on a query-only commit', async ({
+  page,
+}) => {
+  await mock(page)
+  let release,
+    requested = false
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/shop?**', async (route) => {
+    const url = new URL(route.request().url())
+    if (
+      url.searchParams.get('q') === 'navigation-probe' &&
+      route.request().headers().rsc === '1'
+    ) {
+      requested = true
+      await gate
+    }
+    await route.continue().catch(() => {})
+  })
+  try {
+    await openControlled(page, '/shop')
+    await page
+      .getByRole('textbox', { name: 'Search the catalog', exact: true })
+      .fill('navigation-probe')
+    await page
+      .getByRole('button', { name: 'Submit search', exact: true })
+      .click()
+    await expect.poll(() => requested).toBe(true)
+    await expect(
+      page.getByRole('progressbar', { name: 'Loading page', exact: true }),
+    ).toBeVisible()
+    await expect(page.locator('header')).toBeVisible()
+    release()
+    await expect(page).toHaveURL(/shop\?q=navigation-probe/)
+    await expect(
+      page.getByRole('progressbar', { name: 'Loading page', exact: true }),
+    ).toHaveCount(0)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('native Link pending signals show progress during a slow route request', async ({
+  page,
+}) => {
+  await mock(page)
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/shop?**', async (route) => {
+    if (route.request().headers().rsc === '1') await gate
+    await route.continue().catch(() => {})
+  })
+  try {
+    await openControlled(page, '/')
+    await page
+      .locator('header')
+      .getByRole('link', { name: 'Shop', exact: true })
+      .click()
+    await expect(
+      page.getByRole('progressbar', { name: 'Loading page', exact: true }),
+    ).toBeVisible()
+    await page.screenshot({
+      path: test.info().outputPath('navigation-pending.png'),
+    })
+    release()
+    await expect(page).toHaveURL(/\/shop$/)
+    await expect(
+      page.getByRole('progressbar', { name: 'Loading page', exact: true }),
+    ).toHaveCount(0)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('a newer cached navigation clears progress while an older request is still delayed', async ({
+  page,
+}) => {
+  await mock(page)
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await openControlled(page, '/')
+  await page
+    .locator('footer')
+    .getByRole('link', { name: 'All categories', exact: true })
+    .click()
+  await expect(page).toHaveURL(/\/categories$/)
+  await page
+    .locator('header')
+    .getByRole('link', { name: 'eShop home', exact: true })
+    .click()
+  await page.route('**/shop?**', async (route) => {
+    if (
+      new URL(route.request().url()).searchParams.get('q') === 'cancelled-probe'
+    )
+      await gate
+    await route.continue().catch(() => {})
+  })
+  try {
+    await page
+      .getByRole('textbox', { name: 'Search the catalog', exact: true })
+      .fill('cancelled-probe')
+    await page
+      .getByRole('button', { name: 'Submit search', exact: true })
+      .click()
+    await expect(
+      page.getByRole('progressbar', { name: 'Loading page', exact: true }),
+    ).toBeVisible()
+    await page
+      .locator('footer')
+      .getByRole('link', { name: 'All categories', exact: true })
+      .click()
+    await expect(page).toHaveURL(/\/categories$/)
+    await expect(
+      page.getByRole('progressbar', { name: 'Loading page', exact: true }),
+    ).toHaveCount(0)
+    release()
+    await expect(
+      page.getByRole('heading', { name: 'Shop by category', exact: true }),
+    ).toBeVisible()
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('cached route changes avoid a progress flash and history and hash navigation finish cleanly', async ({
+  page,
+}) => {
+  await mock(page)
+  await openControlled(page, '/')
+  await page
+    .locator('footer')
+    .getByRole('link', { name: 'All categories', exact: true })
+    .click()
+  await expect(page).toHaveURL(/\/categories$/)
+  await page
+    .locator('header')
+    .getByRole('link', { name: 'eShop home', exact: true })
+    .click()
+  await expect(page).toHaveURL(/\/$/)
+  await page.evaluate(() => {
+    window.progressFlashes = 0
+    new MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) {
+          if (
+            node instanceof Element &&
+            (node.matches('[role=progressbar]') ||
+              node.querySelector('[role=progressbar]'))
+          )
+            window.progressFlashes++
+        }
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+  await page
+    .locator('footer')
+    .getByRole('link', { name: 'All categories', exact: true })
+    .click()
+  await expect(page).toHaveURL(/\/categories$/)
+  await page.waitForTimeout(300)
+  expect(await page.evaluate(() => window.progressFlashes)).toBe(0)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/$/)
+  await page.goForward()
+  await expect(page).toHaveURL(/\/categories$/)
+  await page.getByRole('link', { name: 'Skip to content', exact: true }).focus()
+  await page
+    .getByRole('link', { name: 'Skip to content', exact: true })
+    .press('Enter')
+  await expect(page).toHaveURL(/#main-content$/)
+  await page.waitForTimeout(300)
+  await expect(
+    page.getByRole('progressbar', { name: 'Loading page', exact: true }),
+  ).toHaveCount(0)
+})
+
+test('pending profile save has stable button width, blocks duplicate clicks and keeps the form visible', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let release,
+    writes = 0,
+    displayName = 'Before save'
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/account/profile', async (route) => {
+    if (route.request().method() === 'PATCH') {
+      writes++
+      await gate
+      displayName = route.request().postDataJSON().displayName
+    }
+    await route.fulfill({
+      json: {
+        ...user,
+        displayName,
+        emailVerified: true,
+        createdAt: new Date().toISOString(),
+      },
+    })
+  })
+  try {
+    await page.goto('/account')
+    await page.getByLabel('Display name', { exact: true }).fill('After save')
+    const save = page.getByRole('button', {
+      name: 'Save display name',
+      exact: true,
+    })
+    const before = await save.boundingBox()
+    await save.dblclick()
+    const pending = page.getByRole('button', {
+      name: 'Saving display name…',
+      exact: true,
+    })
+    await expect(pending).toBeDisabled()
+    await expect(pending).toHaveAttribute('aria-busy', 'true')
+    const after = await pending.boundingBox()
+    expect(Math.abs(before.width - after.width)).toBeLessThanOrEqual(1)
+    expect(writes).toBe(1)
+    await expect(page.getByLabel('Display name', { exact: true })).toHaveValue(
+      'After save',
+    )
+    await expect(
+      page.getByRole('progressbar', { name: 'Loading page', exact: true }),
+    ).toHaveCount(0)
+    release()
+    await expect(save).toBeEnabled()
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('refreshing order history keeps the previous list visible until the new read finishes', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  let reads = 0,
+    release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/orders?**', async (route) => {
+    reads++
+    if (reads > 1) await gate
+    await route.fulfill({
+      json: { items: [], total: 0, page: 1, limit: 20, pages: 1 },
+    })
+  })
+  try {
+    await page.goto('/account/orders')
+    await expect(
+      page.getByText('No orders on this account.', { exact: true }),
+    ).toBeVisible()
+    await page
+      .getByRole('button', { name: 'Refresh orders', exact: true })
+      .click()
+    await expect(
+      page.getByRole('button', { name: 'Refreshing orders…', exact: true }),
+    ).toBeDisabled()
+    await expect(
+      page.getByText('No orders on this account.', { exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('status', { name: 'Loading your orders', exact: true }),
+    ).toHaveCount(0)
+    release()
+    await expect(
+      page.getByRole('button', { name: 'Refresh orders', exact: true }),
+    ).toBeEnabled()
+    expect(reads).toBe(2)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('invalid order input exits pending state and leaves recovery available', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  await page.goto('/account/orders/invalid-order')
+  await expect(page.locator('main').getByRole('alert')).toHaveText(
+    'Enter a canonical order UUID.',
+  )
+  await expect(
+    page.getByRole('button', { name: 'Refresh order', exact: true }),
+  ).toBeEnabled()
+  await expect(
+    page.getByRole('status', {
+      name: 'Loading order and ledgers',
+      exact: true,
+    }),
+  ).toHaveCount(0)
+})
+
 test('explicit product refresh bypasses cached data and failed reads stay retryable', async ({
   page,
 }) => {
@@ -722,19 +1025,23 @@ test('anonymous private navigation requires sign-in', async ({ page }) => {
   await expect(page.getByLabel('Password', { exact: true })).toBeEnabled()
 })
 
-test('catalog failure shows recovery UI without substituting sample products', async ({
+test('catalog refresh failure keeps existing API products visible and offers retry', async ({
   page,
 }) => {
   await mock(page)
+  await openControlled(page, '/shop')
+  await expect(page.locator('main article')).toHaveCount(10)
   await page.route('**/v1/products?**', (route) =>
     route.fulfill({ status: 503, json: { message: 'Unavailable' } }),
   )
-  await openControlled(page, '/shop')
+  await page
+    .getByRole('button', { name: 'Refresh products', exact: true })
+    .click()
   await expect(page.locator('main').getByRole('alert')).toBeVisible()
   await expect(
     page.getByRole('button', { name: 'Retry loading', exact: true }),
   ).toBeVisible()
-  await expect(page.locator('main article')).toHaveCount(0)
+  await expect(page.locator('main article')).toHaveCount(10)
 })
 
 function confirmedCart(quantity) {
@@ -1331,7 +1638,10 @@ test('a cold address read leaves checkout visible and is shared with session pre
       page.getByRole('heading', { name: 'Order summary', exact: true }),
     ).toBeVisible()
     await expect(
-      page.getByText('Loading delivery addresses…', { exact: true }),
+      page.getByRole('status', {
+        name: 'Loading delivery addresses',
+        exact: true,
+      }),
     ).toBeVisible()
     await expect(
       page.getByText('Loading checkout…', { exact: true }),
@@ -1480,7 +1790,11 @@ test('account-link intent preloads recent orders and explicit refresh bypasses t
       json: { items: [], total: 0, page: 1, limit: 20, pages: 0 },
     })
   })
+  const profilePreload = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === '/v1/account/profile',
+  )
   await page.goto('/shop')
+  await profilePreload
   await page
     .locator('header')
     .getByRole('link', { name: 'Account', exact: true })

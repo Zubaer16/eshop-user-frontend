@@ -1,5 +1,23 @@
 # Storefront architecture
 
+## Navigation and action loading feedback - 2026-11-14
+
+The owner approved loading feedback for route changes, cold content and API actions. The User Frontend now uses native Next Link pending signals and router transitions to show an indeterminate 3px top progress bar after 180ms. Path and query completion, interrupted navigation, cached destinations and native history are covered. Hash-only navigation preserves normal anchor behavior. Content is rendered as soon as it is ready. The delay only controls feedback visibility.
+
+Cold client sections use grid, list or form skeletons. Client-rendered categories, wishlist, cart and tracking routes have route fallbacks alongside the existing account and checkout fallbacks. Server-data routes retain blocking rendering to preserve direct HTML product content and HTTP 404 status. Loading boundaries on those routes were removed after production-browser regression tests exposed changed server behavior.
+
+Explicit refresh keeps existing products, homepage content, account data, orders and inbox content visible for the same resource and account. Owner/query changes retain their isolation and clear the previous context. Refresh buttons show local pending state. Sign-in, registration, profile/address saves, notification preference saves and checkout preparation use disabled busy buttons with stable-width labels and delayed spinners. Address preload has a localized indicator. Cart and wishlist continue their existing immediate optimistic interactions.
+
+Feedback provides accessible progress/status names, aria-busy and reduced-motion handling. The progress bar permits pointer interactions. No additional dependency was added. Only User Frontend application code changes in this batch. Master documentation is updated with this implementation. Source push and live deployment remain pending.
+
+### Executed validation
+
+- Production build, type checking, lint, project verification and whitespace checks passed. All 83 unit tests and 59 production-browser tests passed with zero retries or skips.
+- Seven new browser regressions cover delayed same-path search navigation, native Link pending state, interrupted navigation, cached-route flash suppression with history/hash navigation, stable-width save buttons with duplicate-click protection, retained order-history content during refresh and invalid-order recovery leaving pending state.
+- Existing public HTML rendering with JavaScript disabled, product HTTP 404, mobile/desktop overflow, cache isolation, optimistic cart/wishlist, checkout reservations/recovery and CSP browser checks passed. Browser-owned reads and writes use intercepted fixtures. Server-rendered product checks use public Backend GET requests.
+- A pending-navigation screenshot was inspected. Invalid order validation now exits its loading state through the same finally cleanup as request failures.
+
+
 ## Optimistic account wishlist interactions - 2026-11-14
 
 The owner approved immediate wishlist interaction using Zustand memory state with account-backed server persistence. Product-card hearts, product-detail Save/Remove controls, the header count and the Saved items grid now update before the write response. Visible product metadata supplies the optimistic row. New rows appear first. Errors leave controls retryable. The existing 100-product limit also bounds new optimistic additions when the visible list is already full.

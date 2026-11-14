@@ -1,7 +1,8 @@
 'use client'
+import { useNavigationRouter } from '@/components/layout/navigation-provider'
 
-import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import Link from '@/components/ui/app-link'
+import { usePathname } from 'next/navigation'
 import { useShallow } from 'zustand/react/shallow'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
@@ -31,7 +32,7 @@ import { useCommerce } from '@/components/shopping/commerce-provider'
 import { useStoreConfiguration } from '@/components/store/store-content'
 
 function SearchBox({ compact = false }: { compact?: boolean }) {
-  const router = useRouter()
+  const router = useNavigationRouter()
   const t = useUiCopy()
   const [query, setQuery] = useState('')
   function submit(event: FormEvent<HTMLFormElement>) {

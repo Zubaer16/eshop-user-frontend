@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import Link from 'next/link'
+import Link from '@/components/ui/app-link'
 import { publicProduct } from '@/lib/api/public-catalog'
 import { ProductDetails } from '@/components/catalog/catalog'
 

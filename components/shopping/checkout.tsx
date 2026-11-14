@@ -1,5 +1,6 @@
 'use client'
-import Link from 'next/link'
+import { PendingButton, PendingIndicator } from '@/components/ui/pending-button'
+import Link from '@/components/ui/app-link'
 import { ChevronRight, LockKeyhole } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { api, ApiRequestError } from '@/lib/api/client'
@@ -415,13 +416,15 @@ export function Checkout() {
                       to start a new checkout.
                     </p>
                   ) : (
-                    <button
+                    <PendingButton
+                      busy={busy}
+                      pendingLabel="Continue to Stripe Checkout"
                       className={actionClass}
                       disabled={busy}
                       onClick={() => void run(() => resumeOrder(order.id))}
                     >
                       Continue to Stripe Checkout
-                    </button>
+                    </PendingButton>
                   )}
                   <button
                     className="block text-sm font-bold text-red-700"
@@ -566,9 +569,6 @@ export function Checkout() {
                 </div>
               ) : (
                 <>
-                  {addressResource.loading && !addressResource.data && (
-                    <p role="status">Loading delivery addresses…</p>
-                  )}
                   {addressResource.error && (
                     <button
                       className={actionClass}
@@ -583,7 +583,10 @@ export function Checkout() {
                     </Link>
                   )}
                   <label className="block text-sm font-bold">
-                    Delivery address
+                    Delivery address{' '}
+                    {addressResource.loading && !addressResource.data && (
+                      <PendingIndicator label="Loading delivery addresses" />
+                    )}
                     <select
                       aria-label="Delivery address"
                       className={inputClass}
@@ -594,7 +597,11 @@ export function Checkout() {
                         setOptions(null)
                       }}
                     >
-                      <option value="">Select your address</option>
+                      <option value="">
+                        {addressResource.loading && !addressResource.data
+                          ? 'Loading delivery addresses…'
+                          : 'Select your address'}
+                      </option>
                       {addresses.map((row) => (
                         <option key={row.id} value={row.id}>
                           {row.label}: {row.recipientName}, {row.addressLine1},{' '}
@@ -697,7 +704,9 @@ export function Checkout() {
                       </button>
                     </div>
                   ) : (
-                    <button
+                    <PendingButton
+                      busy={busy}
+                      pendingLabel="Preparing checkout…"
                       className={actionClass + ' w-full'}
                       disabled={
                         busy ||
@@ -740,10 +749,8 @@ export function Checkout() {
                       }
                     >
                       <LockKeyhole size={16} className="mr-2" />
-                      {busy
-                        ? 'Preparing checkout…'
-                        : 'Continue to Stripe Checkout'}
-                    </button>
+                      Continue to Stripe Checkout
+                    </PendingButton>
                   )}
                   <p className="text-xs text-muted">
                     Stock and final prices are confirmed before payment. Your

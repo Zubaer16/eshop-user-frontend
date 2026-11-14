@@ -1,5 +1,7 @@
 'use client'
-import Link from 'next/link'
+import { PendingButton } from '@/components/ui/pending-button'
+import { useNavigationRouter } from '@/components/layout/navigation-provider'
+import Link from '@/components/ui/app-link'
 import {
   ArrowLeft,
   CheckCircle2,
@@ -9,7 +11,6 @@ import {
 } from 'lucide-react'
 import { Logo } from '@/components/layout/logo'
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { api, ApiRequestError, safeReturnTo } from '@/lib/api/client'
 import { useAuth } from '@/components/auth/auth-provider'
 export function SignInForm({
@@ -20,7 +21,7 @@ export function SignInForm({
   staff?: boolean
 }) {
   const { session, ready } = useAuth(),
-    router = useRouter()
+    router = useNavigationRouter()
   const [email, setEmail] = useState(''),
     [password, setPassword] = useState(''),
     [confirm, setConfirm] = useState('')
@@ -168,15 +169,17 @@ export function SignInForm({
                 />
               </label>
             )}
-            <button
+            <PendingButton
+              busy={busy}
+              pendingLabel={register ? 'Creating account…' : 'Signing in…'}
               className="h-12 w-full rounded-xl bg-primary px-5 font-bold text-white disabled:opacity-50"
               disabled={
                 busy || !mounted || !ready || session.status === 'checking'
               }
               type="submit"
             >
-              {busy ? 'Please wait…' : register ? 'Create account' : 'Sign in'}
-            </button>
+              {register ? 'Create account' : 'Sign in'}
+            </PendingButton>
           </form>
           {!staff && (
             <div className="mt-5 flex flex-wrap justify-between gap-3 text-sm font-semibold text-primary">

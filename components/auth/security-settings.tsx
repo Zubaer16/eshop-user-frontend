@@ -1,5 +1,5 @@
 'use client'
-import Link from 'next/link'
+import Link from '@/components/ui/app-link'
 import { useState } from 'react'
 import { api, ApiRequestError } from '@/lib/api/client'
 export function SecuritySettings() {

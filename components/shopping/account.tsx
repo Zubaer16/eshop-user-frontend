@@ -1,4 +1,6 @@
 'use client'
+import { ContentSkeleton } from '@/components/ui/page-skeleton'
+import { PendingButton, PendingIndicator } from '@/components/ui/pending-button'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from '@/lib/api/client'
 import { useAccountResource } from '@/components/account/use-account-resource'
@@ -14,7 +16,12 @@ export function AccountHome() {
   const [notice, setNotice] = useState('')
   return (
     <section className="container-shell max-w-4xl py-10">
-      <h1 className="text-3xl font-black">Your account</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="text-3xl font-black">Your account</h1>
+        {resource.data && resource.loading && (
+          <PendingIndicator label="Updating your profile" />
+        )}
+      </div>
       {notice && (
         <p role="status" className="my-4 text-sm text-primary">
           {notice}
@@ -36,7 +43,9 @@ export function AccountHome() {
           }}
         />
       ) : (
-        !resource.error && <p role="status">Loading your profile…</p>
+        !resource.error && (
+          <ContentSkeleton variant="form" label="Loading your profile" />
+        )
       )}
     </section>
   )
@@ -105,13 +114,15 @@ function ProfileForm({
           verification/security flows.
         </p>
         <ErrorMessage text={error} />
-        <button
+        <PendingButton
+          busy={busy}
+          pendingLabel="Saving display name…"
           className={actionClass}
           type="submit"
           disabled={busy || !name.trim()}
         >
-          {busy ? 'Saving…' : 'Save display name'}
-        </button>
+          Save display name
+        </PendingButton>
       </form>
     </div>
   )
@@ -179,13 +190,15 @@ export function Addresses() {
         >
           Add address
         </button>
-        <button
+        <PendingButton
+          busy={resource.loading}
+          pendingLabel="Refreshing addresses…"
           className="text-sm font-bold text-primary"
           disabled={busy}
           onClick={resource.reload}
         >
           Refresh addresses
-        </button>
+        </PendingButton>
       </div>
       {editing !== undefined && (
         <AddressForm
@@ -200,7 +213,9 @@ export function Addresses() {
         />
       )}
       {!resource.data ? (
-        !resource.error && <p role="status">Loading your addresses…</p>
+        !resource.error && (
+          <ContentSkeleton variant="list" label="Loading your addresses" />
+        )
       ) : (
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           {resource.data.items.map((address) => (
@@ -435,9 +450,14 @@ function AddressForm({
         <div className="sm:col-span-2">
           <ErrorMessage text={error} />
           <div className="flex gap-4">
-            <button type="submit" className={actionClass}>
-              {busy ? 'Saving…' : 'Save address'}
-            </button>
+            <PendingButton
+              busy={busy}
+              pendingLabel="Saving address…"
+              type="submit"
+              className={actionClass}
+            >
+              Save address
+            </PendingButton>
             <button
               type="button"
               className="text-sm font-bold text-primary"

@@ -1,7 +1,9 @@
 /* eslint-disable @next/next/no-img-element -- Verified remote and disk image URLs are served directly without fabricated image transforms. */
 'use client'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useNavigationRouter } from '@/components/layout/navigation-provider'
+import { ContentSkeleton } from '@/components/ui/page-skeleton'
+import { PendingButton } from '@/components/ui/pending-button'
+import Link from '@/components/ui/app-link'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '@/lib/api/client'
 import { publicData, readPublic } from '@/lib/api/public-data'
@@ -115,9 +117,7 @@ export function Categories() {
           <ErrorState error={error} retry={reload} />
         </div>
       ) : loading ? (
-        <p role="status" className="py-8">
-          Loading categories…
-        </p>
+        <ContentSkeleton variant="grid" label="Loading categories" />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {categories
@@ -163,7 +163,7 @@ export function Shop({
   initial?: Page<Product> | null
   expiresAt?: number
 }) {
-  const router = useRouter(),
+  const router = useNavigationRouter(),
     catalog = useCatalog(),
     [data, setData] = useState<Page<Product> | null>(() => {
       try {
@@ -174,6 +174,7 @@ export function Shop({
       }
     }),
     [error, setError] = useState(''),
+    [refreshing, setRefreshing] = useState(false),
     [revision, setRevision] = useState(0)
   const [showFilters, setShowFilters] = useState(false)
   useEffect(() => {
@@ -200,6 +201,7 @@ export function Shop({
     let active = true
     setError('')
     async function load() {
+      setRefreshing(true)
       try {
         const query = shopQuery(JSON.parse(key))
         if (initial && revision === 0)
@@ -216,6 +218,8 @@ export function Shop({
               ? error.message
               : 'Products are unavailable.',
           )
+      } finally {
+        if (active) setRefreshing(false)
       }
     }
     void load()
@@ -254,12 +258,14 @@ export function Shop({
             checkout.
           </p>
         </div>
-        <button
+        <PendingButton
+          busy={refreshing}
+          pendingLabel="Refreshing products…"
           className="text-sm font-bold text-primary"
           onClick={() => setRevision((value) => value + 1)}
         >
           Refresh products
-        </button>
+        </PendingButton>
       </div>
       <button
         type="button"
@@ -401,15 +407,16 @@ export function Shop({
               <ErrorState error={catalog.error} retry={catalog.reload} />
             </div>
           )}
-          {error ? (
+          {error && (
             <ErrorState
               error={error}
               retry={() => setRevision((value) => value + 1)}
             />
-          ) : !data ? (
-            <p role="status" className="p-8">
-              Loading products…
-            </p>
+          )}
+          {!data ? (
+            !error && (
+              <ContentSkeleton variant="grid" label="Loading products" />
+            )
           ) : (
             <>
               <p className="mb-4 text-sm text-muted">

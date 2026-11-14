@@ -1,5 +1,6 @@
 'use client'
 
+import { NavigationProvider } from './navigation-provider'
 import { AccountPreload } from '@/components/account/account-preload'
 import { AuthProvider } from '@/components/auth/auth-provider'
 import { CatalogProvider } from '@/components/catalog/catalog-provider'
@@ -10,17 +11,19 @@ import { PushLifecycle } from '@/components/notifications/push-lifecycle'
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <StoreProvider>
-      <AuthProvider>
-        <AccountPreload />
-        <PushLifecycle />
-        <CommerceProvider>
-          <CatalogProvider>
-            {children}
-            <CartDrawer />
-          </CatalogProvider>
-        </CommerceProvider>
-      </AuthProvider>
-    </StoreProvider>
+    <NavigationProvider>
+      <StoreProvider>
+        <AuthProvider>
+          <AccountPreload />
+          <PushLifecycle />
+          <CommerceProvider>
+            <CatalogProvider>
+              {children}
+              <CartDrawer />
+            </CatalogProvider>
+          </CommerceProvider>
+        </AuthProvider>
+      </StoreProvider>
+    </NavigationProvider>
   )
 }
