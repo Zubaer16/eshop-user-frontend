@@ -282,8 +282,8 @@ function CategorySection() {
         </Link>
       </div>
 
-      {error ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+      {error && (
+        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <p>Categories are temporarily unavailable.</p>
           <button
             type="button"
@@ -293,7 +293,8 @@ function CategorySection() {
             Retry loading categories
           </button>
         </div>
-      ) : loading ? (
+      )}
+      {loading ? (
         <div
           role="status"
           aria-label="Loading categories"
@@ -315,11 +316,11 @@ function CategorySection() {
             <CategoryTile category={category} key={category.id} />
           ))}
         </div>
-      ) : (
+      ) : !error ? (
         <p className="rounded-2xl border border-border bg-white p-5 text-sm text-muted">
           No active top-level categories are available yet.
         </p>
-      )}
+      ) : null}
 
       <div className="mt-5 text-center sm:hidden">
         <Link
@@ -427,7 +428,7 @@ function CollectionTabs({
   const products = (visibleCollection?.products || []).slice(0, 8)
   const moreInCollection = Boolean(
     visibleCollection?.productsTruncated ||
-      (visibleCollection?.products.length || 0) > 8,
+    (visibleCollection?.products.length || 0) > 8,
   )
 
   return (

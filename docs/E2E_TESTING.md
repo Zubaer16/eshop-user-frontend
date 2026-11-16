@@ -1,5 +1,13 @@
 # Storefront browser regressions
 
+## Initial category rendering - 2026-11-16
+
+Public categories now load through the existing server catalog reader with a thirty-second revalidation window. The root layout supplies the validated snapshot to CatalogProvider, so homepage tiles, navigation and the category directory have data in the initial HTML. The provider seeds the existing public browser cache and reuses fresh data during hydration. A stale snapshot stays visible during background reads and failed refreshes, with the existing retry control available. An unavailable server read falls back to client loading.
+
+Validation passed project verification, type checking, lint, production build, all 83 unit tests and all 62 production-browser tests with zero retries or skips. Three new browser regressions cover visible initial cards during a delayed stale read, fresh snapshot hydration without a duplicate category request and retained cards with retry after refresh failure. The JavaScript-disabled public HTML test also checks category links. A separate JavaScript-disabled screenshot confirmed all eight homepage category cards in initial HTML.
+
+This batch changes User Frontend source. The existing public categories endpoint, Backend and Admin are unchanged. The owner requested source publication on main on 2026-11-16. Production deployment status is unverified.
+
 ## Navigation and action loading feedback - 2026-11-14
 
 The owner approved loading feedback for route changes, cold content and API actions. The User Frontend now uses native Next Link pending signals and router transitions to show an indeterminate 3px top progress bar after 180ms. Path and query completion, interrupted navigation, cached destinations and native history are covered. Hash-only navigation preserves normal anchor behavior. Content is rendered as soon as it is ready. The delay only controls feedback visibility.

@@ -6,6 +6,7 @@ import { Footer } from '@/components/layout/footer'
 import { Providers } from '@/components/layout/providers'
 import { apiOrigin } from '@/lib/api/runtime'
 import { imageUrl } from '@/lib/api/catalog'
+import { publicCategories } from '@/lib/api/public-catalog'
 
 export async function generateMetadata(): Promise<Metadata> {
   try {
@@ -53,16 +54,20 @@ export const viewport: Viewport = {
   themeColor: '#2459e8',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const initialCategories = await publicCategories().catch(() => null)
   return (
     <html lang="en">
       <body className="antialiased">
         <a href="#main-content" className="skip-to-content">
           Skip to content
         </a>
-        <Providers>
+        <Providers
+          initialCategories={initialCategories}
+          categoriesExpiresAt={Date.now() + 30000}
+        >
           <Header />
           <main id="main-content" tabIndex={-1} className="min-h-[55vh]">
             <UserBoundary>{children}</UserBoundary>

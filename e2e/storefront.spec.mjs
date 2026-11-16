@@ -12,6 +12,15 @@ async function openControlled(page, path) {
       .click()
 }
 
+async function openControlledCategories(page, path) {
+  const clockStart = Date.now()
+  await page.clock.setFixedTime(clockStart)
+  await openControlled(page, path)
+  // Expire the public server snapshot and use the normal focus revalidation.
+  await page.clock.setFixedTime(clockStart + 60000)
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+}
+
 test('returning to public pages reuses catalog and homepage data without another fetch', async ({
   page,
 }) => {
@@ -562,6 +571,18 @@ test('public products render in Home, Shop and collection HTML with JavaScript d
     await expect(
       page.locator('#collection-panel article').first(),
     ).toBeVisible()
+    await expect(
+      page
+        .locator('section')
+        .filter({
+          has: page.getByRole('heading', {
+            name: 'Shop by category',
+            exact: true,
+          }),
+        })
+        .locator('a[href^="/shop?category="]')
+        .first(),
+    ).toBeVisible()
     await page.goto('/shop')
     await expect(page.locator('main article').first()).toBeVisible()
     if (home.collections[0]) {
@@ -587,6 +608,114 @@ test('server-rendered Shop does not duplicate its initial product-list request i
     page.getByRole('button', { name: 'Add to cart', exact: true }).first(),
   ).toBeEnabled()
   expect(reads).toBe(0)
+})
+
+test('server-rendered category cards stay visible while a stale browser read is delayed', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(Date.now() + 60000)
+  await mock(page)
+  let release,
+    reads = 0
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  await page.route('**/v1/categories', async (route) => {
+    reads++
+    await gate
+    await route.fulfill({ json: categories }).catch(() => {})
+  })
+  try {
+    await openControlled(page, '/')
+    await expect.poll(() => reads).toBe(1)
+    const section = page
+      .locator('section')
+      .filter({
+        has: page.getByRole('heading', {
+          name: 'Shop by category',
+          exact: true,
+        }),
+      })
+    expect(await section.getByRole('link').count()).toBeGreaterThan(2)
+    await expect(
+      section.getByRole('status', { name: 'Loading categories', exact: true }),
+    ).toHaveCount(0)
+    release()
+    await expect(
+      section.getByRole('link', { name: 'Electronics', exact: true }),
+    ).toBeVisible()
+    await expect(section.locator('a[href^="/shop?category="]')).toHaveCount(1)
+    expect(reads).toBe(1)
+  } finally {
+    release()
+    await page.unrouteAll({ behavior: 'wait' })
+  }
+})
+
+test('fresh server category data seeds hydration without a duplicate browser category read', async ({
+  page,
+}) => {
+  await mock(page)
+  let reads = 0
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/v1/categories') reads++
+  })
+  await page.goto('/shop?q=category-seed-probe')
+  await page
+    .getByRole('button', { name: 'Refresh products', exact: true })
+    .click()
+  await expect(page.locator('main article')).toHaveCount(10)
+  await page
+    .locator('header')
+    .getByRole('button', { name: 'Categories', exact: true })
+    .click()
+  expect(
+    await page.locator('header a[href^="/shop?category="]').count(),
+  ).toBeGreaterThan(0)
+  expect(reads).toBe(0)
+})
+
+test('failed category refresh retains the rendered cards and retries through the existing control', async ({
+  page,
+}) => {
+  await page.clock.setFixedTime(Date.now() + 60000)
+  await mock(page)
+  let fail = true
+  await page.route('**/v1/categories', (route) =>
+    route.fulfill(
+      fail
+        ? { status: 503, json: { message: 'Category refresh unavailable.' } }
+        : { json: categories },
+    ),
+  )
+  await openControlled(page, '/')
+  const section = page
+    .locator('section')
+    .filter({
+      has: page.getByRole('heading', { name: 'Shop by category', exact: true }),
+    })
+  await expect(
+    section.getByText('Categories are temporarily unavailable.', {
+      exact: true,
+    }),
+  ).toBeVisible()
+  expect(await section.getByRole('link').count()).toBeGreaterThan(2)
+  await expect(
+    section.getByRole('status', { name: 'Loading categories', exact: true }),
+  ).toHaveCount(0)
+  fail = false
+  await section
+    .getByRole('button', { name: 'Retry loading categories', exact: true })
+    .click()
+  await expect(
+    section.getByText('Categories are temporarily unavailable.', {
+      exact: true,
+    }),
+  ).toHaveCount(0)
+  await expect(
+    section.getByRole('link', { name: 'Electronics', exact: true }),
+  ).toBeVisible()
+  await expect(section.locator('a[href^="/shop?category="]')).toHaveCount(1)
 })
 
 async function mock(
@@ -773,7 +902,7 @@ test('mobile shop has two product columns, keyboard filters, and a server filter
 }, info) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mock(page)
-  await openControlled(page, '/shop')
+  await openControlledCategories(page, '/shop')
   await expect(page.locator('main article')).toHaveCount(10)
   await expect(page.locator('#shop-filters')).toHaveCount(1)
   await expect(page.locator('#shop-filters')).toBeHidden()
@@ -804,7 +933,7 @@ test('category hierarchy uses root feature tiles and child links', async ({
   page,
 }) => {
   await mock(page)
-  await page.goto('/categories')
+  await openControlledCategories(page, '/categories')
   await expect(
     page.locator('main').getByRole('link', { name: /Electronics Tech/ }),
   ).toBeVisible()

@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { apiOrigin } from './runtime'
 import {
   readProduct,
+  readCategories,
   readPage,
   shopQuery,
   slugSegment,
@@ -38,6 +39,9 @@ export const publicHomepage = cache(async () => {
     throw new Error('Invalid homepage response.')
   return data
 })
+export const publicCategories = cache(async () =>
+  readCategories(await publicRead('/v1/categories')),
+)
 export async function publicShop(params: ShopQuery) {
   return readPage(
     await publicRead('/v1/products', shopQuery(params)),

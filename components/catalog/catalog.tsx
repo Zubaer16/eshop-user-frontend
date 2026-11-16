@@ -112,11 +112,12 @@ export function Categories() {
           </p>
         </div>
       </div>
-      {error ? (
+      {error && (
         <div className="mt-6">
           <ErrorState error={error} retry={reload} />
         </div>
-      ) : loading ? (
+      )}
+      {loading ? (
         <ContentSkeleton variant="grid" label="Loading categories" />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -144,7 +145,7 @@ export function Categories() {
                 </div>
               </div>
             ))}
-          {!categories.length && (
+          {!categories.length && !error && (
             <p className="py-8 text-sm text-muted">
               No categories are available yet.
             </p>
