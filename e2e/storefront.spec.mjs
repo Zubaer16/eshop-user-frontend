@@ -1733,6 +1733,213 @@ test('background profile refresh preserves an unsaved display-name edit', async 
   }
 })
 
+async function notificationScenario(page) {
+  await mock(page, { authenticated: true })
+  let deviceReads = 0
+  let rows = [
+    {
+      id: id(71),
+      title: 'Order placed',
+      body: 'Your order ' + id(80) + ' has been placed.',
+      readAt: null,
+      createdAt: new Date(Date.now() - 600000).toISOString(),
+    },
+    {
+      id: id(72),
+      title: 'Delivery update',
+      body: 'Your package is on its way.',
+      readAt: new Date().toISOString(),
+      createdAt: new Date(Date.now() - 86400000).toISOString(),
+    },
+  ]
+  await page.route('**/v1/notifications/preferences', (route) =>
+    route.fulfill({
+      json: {
+        revision: 0,
+        securityEmailRequired: true,
+        transactionalInAppRequired: true,
+        transactionalEmail: true,
+        transactionalPush: true,
+        operationalInApp: false,
+        operationalEmail: false,
+        operationalPush: false,
+        marketingInApp: false,
+        marketingEmail: false,
+        marketingPush: false,
+      },
+    }),
+  )
+  await page.route('**/v1/notifications/push/devices', (route) => {
+    deviceReads++
+    return route.fulfill({ json: [] })
+  })
+  await page.route('**/v1/notifications?**', (route) => {
+    const query = new URL(route.request().url()).searchParams
+    const items =
+      query.get('readState') === 'unread'
+        ? rows.filter((row) => !row.readAt)
+        : rows
+    return route.fulfill({
+      json: {
+        items,
+        total: items.length,
+        unread: rows.filter((row) => !row.readAt).length,
+        page: 1,
+        pages: items.length ? 1 : 0,
+      },
+    })
+  })
+  await page.route('**/v1/notifications/*/read', (route) => {
+    const rowId = new URL(route.request().url()).pathname.split('/').at(-2)
+    rows = rows.map((row) =>
+      row.id === rowId
+        ? {
+            ...row,
+            readAt: route.request().postDataJSON().read
+              ? new Date().toISOString()
+              : null,
+          }
+        : row,
+    )
+    return route.fulfill({ json: {} })
+  })
+  await page.route('**/v1/notifications/read-all', (route) => {
+    rows = rows.map((row) => ({ ...row, readAt: new Date().toISOString() }))
+    return route.fulfill({ json: { changed: rows.length } })
+  })
+  return { deviceReads: () => deviceReads }
+}
+
+for (const width of [390, 1440]) {
+  test(`inbox uses compact rows and a separate notification settings page at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 1000 })
+    const scenario = await notificationScenario(page)
+    await page.goto('/account/notifications')
+    const inbox = page.getByRole('region', {
+      name: 'Notification inbox',
+      exact: true,
+    })
+    await expect(inbox.locator('article')).toHaveCount(2)
+    await expect(inbox).toContainText('1 unread')
+    await expect(
+      inbox.getByRole('navigation', { name: 'Message pages' }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole('button', {
+        name: 'Save notification preferences',
+        exact: true,
+      }),
+    ).toHaveCount(0)
+    expect(scenario.deviceReads()).toBe(0)
+    await expect(
+      inbox.getByText('Your order #00000000 has been placed.', { exact: true }),
+    ).toBeVisible()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: info.outputPath('inbox.png'),
+      fullPage: true,
+    })
+    await page
+      .getByRole('link', { name: 'Notification settings', exact: true })
+      .click()
+    await expect(page).toHaveURL(/\/account\/notification-settings$/)
+    await expect(page.getByRole('switch')).toHaveCount(8)
+    await expect(
+      page.getByRole('region', { name: 'Browser notifications', exact: true }),
+    ).toBeVisible()
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Account navigation' })
+        .locator('a[aria-current="page"]'),
+    ).toHaveAttribute('href', '/account/notifications')
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: info.outputPath('notification-settings.png'),
+      fullPage: true,
+    })
+    await page.getByRole('link', { name: 'Back to inbox', exact: true }).click()
+    await inbox.getByRole('button', { name: 'Unread', exact: true }).click()
+    await expect(inbox.locator('article')).toHaveCount(1)
+    await inbox
+      .getByLabel('Message options for Order placed', { exact: true })
+      .click()
+    await inbox.getByRole('button', { name: 'Mark read', exact: true }).click()
+    await expect(
+      inbox.getByRole('heading', { name: 'You’re all caught up', exact: true }),
+    ).toBeVisible()
+  })
+}
+
+test('inbox keeps read actions and validates destinations after the redesign', async ({
+  page,
+}) => {
+  await notificationScenario(page)
+  let target = 'https://example.com/unsafe'
+  let reads = 0
+  await page.route('**/v1/notifications/' + id(71) + '/navigation', (route) =>
+    route.fulfill({ json: { surface: 'STOREFRONT', path: target } }),
+  )
+  await page.route('**/v1/notifications/read-all', (route) => {
+    reads++
+    expect(
+      Number.isFinite(Date.parse(route.request().postDataJSON().before)),
+    ).toBe(true)
+    return route.fulfill({ json: { changed: 1 } })
+  })
+  await page.goto('/account/notifications')
+  await page
+    .getByRole('button', { name: 'Mark all as read', exact: true })
+    .evaluate((button) => {
+      button.click()
+      button.click()
+    })
+  await expect(
+    page
+      .getByRole('status')
+      .filter({ hasText: 'All current messages marked as read.' }),
+  ).toBeVisible()
+  expect(reads).toBe(1)
+  await page
+    .getByRole('button', {
+      name: 'Open notification: Order placed',
+      exact: true,
+    })
+    .click()
+  await expect(
+    page
+      .getByRole('region', { name: 'Notification inbox', exact: true })
+      .getByRole('alert'),
+  ).toContainText('Notification destination is unavailable.')
+  await expect(page).toHaveURL(/\/account\/notifications$/)
+  target = '/account/orders/' + id(80)
+  await page
+    .getByRole('button', {
+      name: 'Open notification: Order placed',
+      exact: true,
+    })
+    .click()
+  await expect(page).toHaveURL(new RegExp('/account/orders/' + id(80) + '$'))
+})
+
+test('notification settings requires an authenticated account', async ({
+  page,
+}) => {
+  await mock(page)
+  await page.goto('/account/notification-settings')
+  await expect(page).toHaveURL(/\/sign-in\?next=/)
+  await expect(page.getByRole('switch')).toHaveCount(0)
+})
+
 test('notification preferences preload once and refresh after a revisioned save', async ({
   page,
 }) => {
@@ -1765,6 +1972,9 @@ test('notification preferences preload once and refresh after a revisioned save'
     .locator('header')
     .getByRole('link', { name: 'Inbox', exact: true })
     .click()
+  await page
+    .getByRole('link', { name: 'Notification settings', exact: true })
+    .click()
   const save = page.getByRole('button', {
     name: 'Save notification preferences',
     exact: true,
@@ -1772,7 +1982,7 @@ test('notification preferences preload once and refresh after a revisioned save'
   await expect(save).toBeEnabled()
   expect(reads).toBe(1)
   await page
-    .getByRole('checkbox', { name: 'operational In App', exact: false })
+    .getByRole('switch', { name: 'Store updates in your inbox', exact: true })
     .check()
   await save.click()
   await expect(
@@ -1782,7 +1992,10 @@ test('notification preferences preload once and refresh after a revisioned save'
   expect(saved.expectedRevision).toBe(0)
   expect(saved.operationalInApp).toBe(true)
   await expect(
-    page.getByRole('checkbox', { name: 'operational In App', exact: false }),
+    page.getByRole('switch', {
+      name: 'Store updates in your inbox',
+      exact: true,
+    }),
   ).toBeChecked()
 })
 

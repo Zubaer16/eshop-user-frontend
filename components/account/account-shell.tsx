@@ -51,11 +51,13 @@ export function AccountShell({ children }: { children: ReactNode }) {
       <div className="grid items-start gap-7 lg:grid-cols-[238px_minmax(0,1fr)]">
         <nav
           aria-label="Account navigation"
-          className="flex gap-2 overflow-x-auto pb-1 lg:sticky lg:top-44 lg:flex-col lg:rounded-[22px] lg:border lg:border-border lg:bg-white lg:p-3"
+          className="relative flex gap-2 overflow-x-auto pb-1 lg:sticky lg:top-44 lg:flex-col lg:rounded-[22px] lg:border lg:border-border lg:bg-white lg:p-3"
         >
           {sections.map(({ href, label, icon: Icon }) => {
             const active =
               pathname === href ||
+              (href === '/account/notifications' &&
+                pathname === '/account/notification-settings') ||
               (href === '/account/orders' &&
                 pathname.startsWith('/account/orders/'))
             return (

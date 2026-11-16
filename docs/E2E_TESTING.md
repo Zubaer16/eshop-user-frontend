@@ -1,5 +1,17 @@
 # Storefront browser regressions
 
+## Compact inbox and separate notification settings - 2026-11-16
+
+The owner approved a compact message inbox and a separate settings page after reviewing the existing combined page. Inbox now has All/Unread filters, an unread count, icon refresh, a compact mark-all-read action and message rows with read state, readable elapsed time and shortened order references. Each row opens its existing verified destination. Read/unread controls are available in its native details menu. Pagination appears for multiple pages. A depleted filtered page returns to a valid page.
+
+A gear link opens /account/notification-settings within the authenticated account shell. The existing eight preferences are grouped into Order updates, Store updates and Offers & promotions with labelled native switches and one Save changes button. Existing revision checks, marketing confirmation and the shared owner-isolated preferences cache serve saves and reloads. Required security email and in-app order history are explained in a compact notice. Browser notification status and enable/disable controls are located on settings. Additional registered browsers are expandable. Current-browser matching uses the existing owned installation metadata.
+
+The Inbox navigation item stays active on the settings route. The mobile account navigation now establishes the containing block for its screen-reader current marker, preventing off-screen marker overflow when Inbox is active. Duplicate mutation protection uses a synchronous ref and existing ownership/unmount guards. The inbox loads its messages independently of settings reads.
+
+Project verification, type checking, lint, production build, all 85 unit tests and all 70 production-browser tests passed. The final browser run had zero retries or skips. New coverage exercises compact inbox/settings at 390px and 1440px, menu read actions, unread filtering, empty state, single-page pagination suppression, required authentication, duplicate mark-all protection and validated navigation destinations. The revisioned-save/cache regression now follows the settings link and uses the labelled switches. Two formatting regressions cover readable times and shortened order references. Desktop/mobile screenshots were inspected using controlled data. Browser push provider registration/delivery was outside this mocked UI validation.
+
+User Frontend source changes in this batch. The owner requested publication on main on 2026-11-16. Production deployment status is unverified.
+
 ## Checkout preparation overlay - 2026-11-16
 
 The owner requested a design-matched step timeline similar to the supplied reference and permitted an overlay or separate page. The existing checkout preparation feedback now uses a centered Radix modal with the storefront palette, rounded card styling and a dimmed backdrop. It displays completed, in-progress and waiting states for checkout review, the combined stock/reservation/payment operation, and Stripe navigation. Resuming an existing order displays payment-session preparation. Backend acknowledgements drive completion markers. The indeterminate progress bar and live status remain available.

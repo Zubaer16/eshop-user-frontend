@@ -1,15 +1,24 @@
 'use client'
+import Link from '@/components/ui/app-link'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { ContentSkeleton } from '@/components/ui/page-skeleton'
-import { PendingButton } from '@/components/ui/pending-button'
 import { useNavigationRouter } from '@/components/layout/navigation-provider'
-import { useEffect, useRef, useState } from 'react'
-import { api, accountData } from '@/lib/api/client'
 import {
-  enableBrowserPush,
-  revokeBrowserPush,
-  pushConfigured,
-} from '@/lib/api/browser-push'
+  Bell,
+  CheckCheck,
+  ChevronLeft,
+  ChevronRight,
+  Ellipsis,
+  Mail,
+  RefreshCw,
+  Settings2,
+} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { api } from '@/lib/api/client'
+import { notificationBody, notificationTime } from '@/lib/notification-format'
 import { useAuth } from '@/components/auth/auth-provider'
+import { cn } from '@/lib/utils'
+
 type Row = {
   id: string
   title: string
@@ -24,48 +33,27 @@ type Page = {
   page: number
   pages: number
 }
-type Preferences = {
-  revision: number
-  securityEmailRequired: boolean
-  transactionalInAppRequired: boolean
-  [key: string]: number | boolean | string | null
-}
-const channels = [
-  'transactionalEmail',
-  'transactionalPush',
-  'operationalInApp',
-  'operationalEmail',
-  'operationalPush',
-  'marketingInApp',
-  'marketingEmail',
-  'marketingPush',
-]
-const button =
-  'rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white disabled:opacity-50'
+
 export function NotificationInbox() {
   const mounted = useRef(true)
+  const writing = useRef(false)
   useEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
     }
   }, [])
-  const { session } = useAuth(),
-    router = useNavigationRouter(),
-    [page, setPage] = useState(1),
-    [unread, setUnread] = useState(false),
-    [data, setData] = useState<Page | null>(null),
-    [prefs, setPrefs] = useState<Preferences | null>(() =>
-      accountData.peek('/v1/notifications/preferences'),
-    ),
-    [prefsLoading, setPrefsLoading] = useState(true),
-    [loading, setLoading] = useState(true),
-    [savingPreferences, setSavingPreferences] = useState(false),
-    [error, setError] = useState(''),
-    [notice, setNotice] = useState(''),
-    [revision, setRevision] = useState(0),
-    [busy, setBusy] = useState(false),
-    [delivery, setDelivery] = useState<string | null>(null)
+  const { session } = useAuth()
+  const router = useNavigationRouter()
+  const [page, setPage] = useState(1)
+  const [unread, setUnread] = useState(false)
+  const [data, setData] = useState<Page | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [revision, setRevision] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [delivery, setDelivery] = useState<string | null>(null)
   useEffect(() => {
     setDelivery(new URLSearchParams(window.location.search).get('delivery'))
   }, [])
@@ -74,45 +62,37 @@ export function NotificationInbox() {
   const previousQuery = useRef(queryKey)
   useEffect(() => {
     let active = true
-    const c = new AbortController()
+    const controller = new AbortController()
     if (previousQuery.current !== queryKey) setData(null)
     previousQuery.current = queryKey
     setLoading(true)
-    setPrefsLoading(true)
     setError('')
-    void Promise.all([
-      api.request<Page>('/v1/notifications', {
+    void api
+      .request<Page>('/v1/notifications', {
         query: { page, limit: 20, readState: unread ? 'unread' : 'all' },
-        signal: c.signal,
-      }),
-      accountData
-        .read<Preferences>('/v1/notifications/preferences')
-        .then((value) => {
-          if (active) setPrefs(value)
-          return value
-        })
-        .finally(() => {
-          if (active) setPrefsLoading(false)
-        }),
-    ])
-      .then(([rows]) => {
-        if (active) {
-          setData(rows)
-        }
+        signal: controller.signal,
       })
-      .catch((e) => {
-        if (active) setError(e.message)
+      .then((rows) => {
+        if (!active) return
+        if (page > Math.max(1, rows.pages)) {
+          setPage(Math.max(1, rows.pages))
+          return
+        }
+        setData(rows)
+      })
+      .catch((failure) => {
+        if (active) setError(failure.message)
       })
       .finally(() => {
         if (active) setLoading(false)
       })
     return () => {
       active = false
-      c.abort()
+      controller.abort()
     }
   }, [page, unread, revision, queryKey])
-  const epoch = session.epoch,
-    subject = session.user?.id
+  const epoch = session.epoch
+  const subject = session.user?.id
   function guard() {
     const current = api.getSnapshot()
     if (
@@ -123,7 +103,8 @@ export function NotificationInbox() {
       throw new Error('The account changed. Reopen inbox.')
   }
   async function action(work: () => Promise<void>) {
-    if (busy) return
+    if (writing.current) return
+    writing.current = true
     setBusy(true)
     setError('')
     setNotice('')
@@ -131,15 +112,17 @@ export function NotificationInbox() {
       guard()
       await work()
       guard()
-      setRevision((v) => v + 1)
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : 'Action not confirmed. Refresh before retrying.',
-      )
+      setRevision((value) => value + 1)
+    } catch (failure) {
+      if (mounted.current)
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : 'Action not confirmed. Refresh before retrying.',
+        )
     } finally {
-      setBusy(false)
+      writing.current = false
+      if (mounted.current) setBusy(false)
     }
   }
   async function open(id: string, push = false) {
@@ -161,13 +144,25 @@ export function NotificationInbox() {
     router.push(target.path)
   }
   return (
-    <section className="container-shell max-w-5xl space-y-5 py-10">
-      <h1 className="text-3xl font-black">Your notification inbox</h1>
-      <p className="text-sm text-muted">
-        Account-owned messages. Security email and transactional in-app history
-        remain mandatory. Marketing consent is separate from browser
-        notification permission.
-      </p>
+    <section className="space-y-5" aria-label="Notification inbox">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-extrabold tracking-tight text-ink">
+            Inbox
+          </h2>
+          {data && (
+            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-primary">
+              {data.unread} unread
+            </span>
+          )}
+        </div>
+        <Link
+          href="/account/notification-settings"
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+        >
+          <Settings2 size={15} aria-hidden="true" /> Notification settings
+        </Link>
+      </div>
       {error && (
         <p
           role="alert"
@@ -176,264 +171,210 @@ export function NotificationInbox() {
           {error}
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {notice && (
+        <p
+          role="status"
+          className="rounded-xl bg-blue-50 px-4 py-3 text-sm text-primary"
+        >
+          {notice}
+        </p>
+      )}
       {delivery && (
-        <button
-          className={button}
+        <Button
+          variant="outline"
+          size="sm"
           disabled={busy}
           onClick={() => void action(() => open(delivery, true))}
         >
           Open received push notification
-        </button>
+        </Button>
       )}
-      <div className="flex flex-wrap items-center gap-4">
-        <PendingButton
-          busy={loading}
-          pendingLabel="Refreshing inbox…"
-          className={button}
-          onClick={() => setRevision((v) => v + 1)}
-          disabled={busy}
-        >
-          Refresh inbox
-        </PendingButton>
-        <label className="text-sm">
-          <input
-            type="checkbox"
-            checked={unread}
-            onChange={(e) => {
-              setUnread(e.target.checked)
-              setPage(1)
-            }}
-          />{' '}
-          Unread only
-        </label>
-        <button
-          className={button}
-          disabled={busy || !data}
-          onClick={() =>
-            void action(async () => {
-              await api.request('/v1/notifications/read-all', {
-                method: 'PUT',
-                body: { before: new Date().toISOString() },
-              })
-              guard()
-              setNotice('Messages through the selected time marked read.')
-            })
-          }
-        >
-          Mark current history read
-        </button>
-      </div>
-      {data ? (
-        <>
-          <p>
-            {data.unread} unread · {data.total} matching messages
-          </p>
-          {data.items.map((row) => (
-            <article
-              key={row.id}
-              className="space-y-3 rounded-2xl border bg-white p-5"
-            >
-              <h2 className="font-bold">{row.title}</h2>
-              <p className="whitespace-pre-wrap text-sm">{row.body}</p>
-              <p className="text-xs text-muted">
-                {row.createdAt} · {row.readAt ? 'Read' : 'Unread'}
-              </p>
-              <div className="flex gap-3">
-                <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() =>
-                    void action(async () => {
-                      await api.request(
-                        '/v1/notifications/' + row.id + '/read',
-                        {
-                          method: 'PUT',
-                          body: { read: !row.readAt },
-                        },
-                      )
-                    })
-                  }
-                >
-                  {row.readAt ? 'Mark unread' : 'Mark read'}
-                </button>
-                <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() => void action(() => open(row.id))}
-                >
-                  Open message destination
-                </button>
-              </div>
-            </article>
-          ))}
-          {!data.items.length && <p>No messages in this view.</p>}
-          <div className="flex justify-between">
-            <button
-              className={button}
-              disabled={busy || page <= 1}
-              onClick={() => setPage((v) => v - 1)}
-            >
-              Previous messages
-            </button>
-            <span>
-              Page {data.page} of {Math.max(1, data.pages)}
-            </span>
-            <button
-              className={button}
-              disabled={busy || page >= data.pages}
-              onClick={() => setPage((v) => v + 1)}
-            >
-              Next messages
-            </button>
-          </div>
-        </>
-      ) : (
-        !error && <ContentSkeleton variant="list" label="Loading inbox" />
-      )}
-      {prefs && (
-        <form
-          key={prefs.revision}
-          className="space-y-4 rounded-2xl border bg-white p-5"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (prefsLoading) return
-            const form = new FormData(e.currentTarget)
-            if (
-              form.has('marketingEmail') ||
-              form.has('marketingPush') ||
-              form.has('marketingInApp')
-            )
-              if (
-                !window.confirm(
-                  'Allow the selected marketing channels for this account?',
-                )
-              )
-                return
-            setSavingPreferences(true)
-            void action(async () => {
-              await api.request('/v1/notifications/preferences', {
-                method: 'PUT',
-                body: {
-                  expectedRevision: prefs.revision,
-                  ...Object.fromEntries(
-                    channels.map((key) => [key, form.has(key)]),
-                  ),
-                },
-              })
-              guard()
-              setNotice('Notification preferences saved.')
-            }).finally(() => setSavingPreferences(false))
-          }}
-        >
-          <h2 className="text-xl font-bold">Notification preferences</h2>
-          <fieldset
-            className="grid gap-4 sm:grid-cols-2"
-            disabled={busy || prefsLoading}
+      <div className="rounded-[22px] border border-border bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+          <div
+            role="group"
+            aria-label="Message filter"
+            className="inline-flex gap-1 rounded-xl bg-slate-100 p-1"
           >
-            {channels.map((key) => (
-              <label key={key} className="text-sm">
-                <input
-                  type="checkbox"
-                  name={key}
-                  defaultChecked={prefs[key] === true}
-                />{' '}
-                {key.replace(/([a-z])([A-Z])/g, '$1 $2')}
-              </label>
+            {[false, true].map((value) => (
+              <button
+                key={String(value)}
+                type="button"
+                aria-pressed={unread === value}
+                disabled={busy}
+                onClick={() => {
+                  setUnread(value)
+                  setPage(1)
+                }}
+                className={cn(
+                  'min-h-9 rounded-lg px-4 text-xs font-bold transition focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50',
+                  unread === value
+                    ? 'bg-white text-ink shadow-sm'
+                    : 'text-muted hover:text-ink',
+                )}
+              >
+                {value ? 'Unread' : 'All'}
+              </button>
             ))}
-          </fieldset>
-          <PendingButton
-            busy={savingPreferences}
-            pendingLabel="Saving preferences…"
-            className={button}
-            disabled={busy || prefsLoading}
-          >
-            Save notification preferences
-          </PendingButton>
-        </form>
-      )}
-      <section className="space-y-3 rounded-2xl border p-5">
-        <h2 className="text-xl font-bold">Browser push on this device</h2>
-        <p className="text-sm text-muted">
-          {pushConfigured()
-            ? 'Enable only if you want notifications on this browser.'
-            : 'Browser push configuration is unavailable on this deployment. In-app messages remain available.'}
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <button
-            className={button}
-            disabled={busy || !pushConfigured()}
-            onClick={() =>
-              void action(async () => {
-                await enableBrowserPush()
-                guard()
-                setNotice(
-                  'This browser registration was confirmed. Provider delivery still depends on deployment configuration.',
-                )
-              })
-            }
-          >
-            Enable or refresh browser push
-          </button>
-          <button
-            className={button}
-            disabled={busy}
-            onClick={() =>
-              void action(async () => {
-                await revokeBrowserPush()
-                guard()
-                setNotice('This browser push registration was revoked.')
-              })
-            }
-          >
-            Revoke this browser push
-          </button>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy || !data?.unread}
+              onClick={() =>
+                void action(async () => {
+                  await api.request('/v1/notifications/read-all', {
+                    method: 'PUT',
+                    body: { before: new Date().toISOString() },
+                  })
+                  guard()
+                  setNotice('All current messages marked as read.')
+                })
+              }
+            >
+              <CheckCheck size={15} aria-hidden="true" /> Mark all as read
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={loading ? 'Refreshing inbox…' : 'Refresh inbox'}
+              disabled={busy || loading}
+              onClick={() => setRevision((value) => value + 1)}
+            >
+              <RefreshCw
+                size={16}
+                aria-hidden="true"
+                className={
+                  loading ? 'animate-spin motion-reduce:animate-none' : ''
+                }
+              />
+            </Button>
+          </div>
         </div>
-        <DeviceList revision={revision} />
-      </section>
+        {data ? (
+          <div className="divide-y divide-border">
+            {data.items.map((row) => (
+              <article
+                key={row.id}
+                className={cn(
+                  'relative flex gap-1 pr-2 last:rounded-b-[22px] sm:pr-3',
+                  !row.readAt && 'bg-blue-50/50',
+                )}
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label={'Open notification: ' + row.title}
+                  onClick={() => void action(() => open(row.id))}
+                  className="flex min-w-0 flex-1 gap-3 p-4 text-left transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary disabled:opacity-60 sm:gap-4 sm:p-5"
+                >
+                  <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-primary">
+                    <Bell size={17} aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-start gap-2 text-sm font-bold text-ink">
+                      {row.title}
+                      {!row.readAt && (
+                        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary">
+                          <span className="sr-only">Unread</span>
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-1 block break-words text-sm leading-6 text-muted">
+                      {notificationBody(row.body)}
+                    </span>
+                    <time
+                      dateTime={row.createdAt}
+                      title={new Date(row.createdAt).toLocaleString()}
+                      className="mt-2 block text-xs text-muted"
+                    >
+                      {notificationTime(row.createdAt)}
+                    </time>
+                  </span>
+                </button>
+                <details className="relative mt-3 shrink-0 self-start">
+                  <summary
+                    aria-label={'Message options for ' + row.title}
+                    className="flex size-10 cursor-pointer list-none items-center justify-center rounded-lg text-muted hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden"
+                  >
+                    <Ellipsis size={18} aria-hidden="true" />
+                  </summary>
+                  <div className="absolute right-0 top-10 z-10 w-40 rounded-xl border border-border bg-white p-1.5 shadow-lg">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-xs font-semibold text-ink hover:bg-slate-50 disabled:opacity-50"
+                      onClick={(event) => {
+                        event.currentTarget
+                          .closest('details')
+                          ?.removeAttribute('open')
+                        void action(async () => {
+                          await api.request(
+                            '/v1/notifications/' + row.id + '/read',
+                            { method: 'PUT', body: { read: !row.readAt } },
+                          )
+                        })
+                      }}
+                    >
+                      <Mail size={15} aria-hidden="true" />
+                      {row.readAt ? 'Mark unread' : 'Mark read'}
+                    </button>
+                  </div>
+                </details>
+              </article>
+            ))}
+            {!data.items.length && (
+              <div className="flex flex-col items-center px-5 py-14 text-center">
+                <Bell
+                  size={28}
+                  strokeWidth={1.4}
+                  className="mb-4 text-muted"
+                  aria-hidden="true"
+                />
+                <h3 className="text-sm font-bold text-ink">
+                  {unread ? 'You’re all caught up' : 'No notifications yet'}
+                </h3>
+                <p className="mt-2 text-sm text-muted">
+                  {unread
+                    ? 'Your new messages will appear here.'
+                    : 'Order and account updates will appear here.'}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : !error ? (
+          <div className="p-5">
+            <ContentSkeleton variant="list" label="Loading inbox" />
+          </div>
+        ) : null}
+        {data && data.pages > 1 && (
+          <nav
+            aria-label="Message pages"
+            className="flex items-center justify-between border-t border-border p-4"
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || loading || page <= 1}
+              onClick={() => setPage((value) => value - 1)}
+            >
+              <ChevronLeft size={15} /> Previous
+            </Button>
+            <span className="text-xs text-muted">
+              {data.page} / {data.pages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || loading || page >= data.pages}
+              onClick={() => setPage((value) => value + 1)}
+            >
+              Next <ChevronRight size={15} />
+            </Button>
+          </nav>
+        )}
+      </div>
     </section>
-  )
-}
-function DeviceList({ revision }: { revision: number }) {
-  const [rows, setRows] = useState<
-      | {
-          id: string
-          surface: string
-          status: string
-          lastSeenAt: string
-          expiresAt: string
-        }[]
-      | null
-    >(null),
-    [error, setError] = useState('')
-  useEffect(() => {
-    let active = true
-    setRows(null)
-    setError('')
-    void api
-      .request<typeof rows>('/v1/notifications/push/devices')
-      .then((value) => {
-        if (active) setRows(value)
-      })
-      .catch((e) => {
-        if (active) setError(e.message)
-      })
-    return () => {
-      active = false
-    }
-  }, [revision])
-  return (
-    <div className="space-y-2 text-xs">
-      {error ? (
-        <p role="alert">{error}</p>
-      ) : (
-        rows?.map((row) => (
-          <p key={row.id}>
-            {row.surface} · {row.status} · last seen {row.lastSeenAt} · expires{' '}
-            {row.expiresAt}
-          </p>
-        ))
-      )}
-    </div>
   )
 }

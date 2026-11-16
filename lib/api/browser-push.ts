@@ -11,6 +11,16 @@ export const pushConfigured = () =>
   Object.values(config).every(Boolean) && Boolean(vapidKey)
 const idKey = 'eshop-push-installation',
   ownerKey = 'eshop-push-owner'
+export function currentBrowserPushInstallation() {
+  try {
+    const subject = api.getSnapshot().user?.id
+    return subject && localStorage.getItem(ownerKey) === subject
+      ? localStorage.getItem(idKey)
+      : null
+  } catch {
+    return null
+  }
+}
 type Device = {
   id: string
   installationId: string
