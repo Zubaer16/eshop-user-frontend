@@ -628,14 +628,12 @@ test('server-rendered category cards stay visible while a stale browser read is 
   try {
     await openControlled(page, '/')
     await expect.poll(() => reads).toBe(1)
-    const section = page
-      .locator('section')
-      .filter({
-        has: page.getByRole('heading', {
-          name: 'Shop by category',
-          exact: true,
-        }),
-      })
+    const section = page.locator('section').filter({
+      has: page.getByRole('heading', {
+        name: 'Shop by category',
+        exact: true,
+      }),
+    })
     expect(await section.getByRole('link').count()).toBeGreaterThan(2)
     await expect(
       section.getByRole('status', { name: 'Loading categories', exact: true }),
@@ -694,11 +692,9 @@ test('failed category refresh retains the rendered cards and retries through the
     ),
   )
   await openControlled(page, '/')
-  const section = page
-    .locator('section')
-    .filter({
-      has: page.getByRole('heading', { name: 'Shop by category', exact: true }),
-    })
+  const section = page.locator('section').filter({
+    has: page.getByRole('heading', { name: 'Shop by category', exact: true }),
+  })
   await expect(
     section.getByText('Categories are temporarily unavailable.', {
       exact: true,
@@ -829,21 +825,43 @@ test('background store-configuration failures retain the current brand', async (
           },
     )
   })
-  await page.route('**/v1/store/operations', route => route.fulfill(fail ? { status: 503, json: { message: 'Unavailable' } } : { json: {
-    configured: true, locale: 'en-US', displayCurrency: 'EUR', themeMode: 'light', accentColor: '#2459e8', showWishlist: true, showPolicies: true,
-  } }))
+  await page.route('**/v1/store/operations', (route) =>
+    route.fulfill(
+      fail
+        ? { status: 503, json: { message: 'Unavailable' } }
+        : {
+            json: {
+              configured: true,
+              locale: 'en-US',
+              displayCurrency: 'EUR',
+              themeMode: 'light',
+              accentColor: '#2459e8',
+              showWishlist: true,
+              showPolicies: true,
+            },
+          },
+    ),
+  )
   await page.goto('/shop')
   const logo = page
     .locator('header')
     .getByRole('link', { name: 'Fixture Store home', exact: true })
   await expect(logo).toBeVisible()
-  await expect(page.getByLabel('Preferred display currency; prices retain their listed currency')).toHaveText('EUR')
+  await expect(
+    page.getByLabel(
+      'Preferred display currency; prices retain their listed currency',
+    ),
+  ).toHaveText('EUR')
   fail = true
   await page.clock.setFixedTime(clockStart + 120000)
   await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect.poll(() => reads).toBe(2)
   await expect(logo).toBeVisible()
-  await expect(page.getByLabel('Preferred display currency; prices retain their listed currency')).toHaveText('EUR')
+  await expect(
+    page.getByLabel(
+      'Preferred display currency; prices retain their listed currency',
+    ),
+  ).toHaveText('EUR')
 })
 
 async function mock(
@@ -2322,6 +2340,108 @@ test('account-link intent preloads recent orders and explicit refresh bypasses t
     .getByRole('button', { name: 'Refresh orders', exact: true })
     .click()
   await expect.poll(() => reads).toBe(2)
+})
+
+for (const width of [390, 1440]) {
+  test(`order history uses compact premium cards without horizontal overflow at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await mock(page, { authenticated: true })
+    const orderId = id(80)
+    const createdAt = '2026-11-16T12:34:35.732Z'
+    const order = {
+      ...pendingCheckoutOrder('PAID'),
+      createdAt,
+      fulfillment: {
+        id: id(83),
+        status: 'SHIPPED',
+        carrier: 'DHL',
+        trackingNumber: 'TRACK123',
+        startedAt: createdAt,
+        shippedAt: createdAt,
+        deliveredAt: null,
+      },
+    }
+    await page.route('**/v1/orders?**', (route) =>
+      route.fulfill({
+        json: { items: [order], total: 1, page: 1, limit: 20, pages: 1 },
+      }),
+    )
+    await page.goto('/account/orders')
+
+    await expect(
+      page.getByRole('heading', { name: 'Your orders', exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('link', { name: orderId, exact: true }),
+    ).toBeVisible()
+    await expect(page.getByText('Paid', { exact: true })).toBeVisible()
+    await expect(page.getByText('Shipped', { exact: true })).toBeVisible()
+    await expect(page.getByText('Nov 16, 2026', { exact: true })).toBeVisible()
+    await expect(page.getByText('$39.98', { exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('link', { name: 'View order details', exact: true }),
+    ).toHaveAttribute('href', '/account/orders/' + orderId)
+    await expect(
+      page.getByRole('navigation', { name: 'Order history pagination' }),
+    ).toHaveCount(0)
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true)
+    await page.screenshot({
+      path: info.outputPath(`order-history-${width}.png`),
+      fullPage: true,
+    })
+  })
+}
+
+test('order history pagination only appears for multiple pages and loads the selected page', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  const orderFor = (number) => ({
+    ...pendingCheckoutOrder('PAID'),
+    id: id(number),
+    createdAt: '2026-11-16T12:34:35.732Z',
+    fulfillment: null,
+  })
+  const requestedPages = []
+  await page.route('**/v1/orders?**', (route) => {
+    const requestedPage = Number(
+      new URL(route.request().url()).searchParams.get('page') || 1,
+    )
+    requestedPages.push(requestedPage)
+    return route.fulfill({
+      json: {
+        items: [orderFor(requestedPage === 1 ? 80 : 81)],
+        total: 21,
+        page: requestedPage,
+        limit: 20,
+        pages: 2,
+      },
+    })
+  })
+  await page.goto('/account/orders')
+  const pagination = page.getByRole('navigation', {
+    name: 'Order history pagination',
+  })
+  await expect(pagination).toBeVisible()
+  await expect(
+    pagination.getByRole('button', { name: 'Previous' }),
+  ).toBeDisabled()
+  await expect(pagination.getByRole('button', { name: 'Next' })).toBeEnabled()
+  await pagination.getByRole('button', { name: 'Next' }).click()
+  await expect(
+    page.getByRole('link', { name: id(81), exact: true }),
+  ).toBeVisible()
+  await expect(
+    pagination.getByRole('button', { name: 'Previous' }),
+  ).toBeEnabled()
+  await expect(pagination.getByRole('button', { name: 'Next' })).toBeDisabled()
+  expect(requestedPages).toEqual([1, 2])
 })
 
 test('order-link intent warms the order and its ledgers before navigation', async ({
