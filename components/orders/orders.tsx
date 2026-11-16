@@ -6,8 +6,12 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   ArrowLeft,
+  ArrowRight,
   CalendarDays,
   Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Clock3,
   Copy,
@@ -18,8 +22,10 @@ import {
   PackageCheck,
   RefreshCw,
   RotateCcw,
+  ShoppingBag,
   Truck,
   Wallet,
+  XCircle,
 } from 'lucide-react'
 import { api } from '@/lib/api/client'
 import { money } from '@/lib/api/catalog'
@@ -29,6 +35,7 @@ import {
   returnPayload,
   returnableQuantity,
   type OrderPage,
+  type OrderSummary,
   type OrderDetail,
   type ReturnRow,
   type ReplacementRow,
@@ -53,6 +60,198 @@ import {
   ErrorMessage,
 } from '@/components/shopping/cart'
 
+type StatusPresentation = {
+  label: string
+  className: string
+  Icon: LucideIcon
+}
+
+function paymentPresentation(
+  status: OrderSummary['status'],
+): StatusPresentation {
+  switch (status) {
+    case 'PAID':
+      return {
+        label: 'Paid',
+        className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        Icon: CheckCircle2,
+      }
+    case 'PENDING_PAYMENT':
+      return {
+        label: 'Payment pending',
+        className: 'border-amber-200 bg-amber-50 text-amber-800',
+        Icon: Clock3,
+      }
+    case 'CANCELLED':
+      return {
+        label: 'Cancelled',
+        className: 'border-rose-200 bg-rose-50 text-rose-700',
+        Icon: XCircle,
+      }
+    case 'EXPIRED':
+      return {
+        label: 'Expired',
+        className: 'border-slate-200 bg-slate-100 text-slate-600',
+        Icon: Clock3,
+      }
+    default:
+      return {
+        label: 'Status unavailable',
+        className: 'border-slate-200 bg-slate-100 text-slate-600',
+        Icon: Clock3,
+      }
+  }
+}
+
+function shipmentPresentation(
+  shipment: OrderSummary['fulfillment'],
+): StatusPresentation {
+  if (!shipment)
+    return {
+      label: 'Not started',
+      className: 'border-slate-200 bg-slate-100 text-slate-600',
+      Icon: Clock3,
+    }
+
+  switch (shipment.status) {
+    case 'PROCESSING':
+      return {
+        label: 'Processing',
+        className: 'border-blue-200 bg-blue-50 text-blue-700',
+        Icon: Package,
+      }
+    case 'SHIPPED':
+      return {
+        label: 'Shipped',
+        className: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+        Icon: Truck,
+      }
+    case 'DELIVERED':
+      return {
+        label: 'Delivered',
+        className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        Icon: CheckCircle2,
+      }
+    default:
+      return {
+        label: 'Status unavailable',
+        className: 'border-slate-200 bg-slate-100 text-slate-600',
+        Icon: Clock3,
+      }
+  }
+}
+
+function StatusPill({ status }: { status: StatusPresentation }) {
+  const Icon = status.Icon
+  return (
+    <span
+      className={`inline-flex min-h-7 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold leading-none ${status.className}`}
+    >
+      <Icon aria-hidden="true" size={13} strokeWidth={2.25} />
+      {status.label}
+    </span>
+  )
+}
+
+function formatOrderDate(value: string) {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return 'Date unavailable'
+  const locale =
+    typeof document === 'undefined'
+      ? 'en-US'
+      : document.documentElement.dataset.storeLocale || 'en-US'
+  return new Intl.DateTimeFormat(locale, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(date)
+}
+
+function OrderCard({ order }: { order: OrderSummary }) {
+  const payment = paymentPresentation(order.status)
+  const shipment = shipmentPresentation(order.fulfillment)
+  const detailsHref = '/account/orders/' + order.id
+  const prefetch = () => prefetchOrder(order.id)
+
+  return (
+    <article
+      data-testid="order-card"
+      className="group rounded-2xl border border-border bg-white p-4 shadow-[0_2px_10px_rgba(21,32,57,0.025)] transition duration-200 hover:border-[#d5def0] hover:shadow-[0_12px_30px_rgba(21,32,57,0.07)] sm:p-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0 space-y-1.5">
+          <p className="text-[10px] font-extrabold uppercase tracking-[.13em] text-muted">
+            Order reference
+          </p>
+          <Link
+            href={detailsHref}
+            aria-label={order.id}
+            title={`Order ID ${order.id}`}
+            onMouseEnter={prefetch}
+            onFocus={prefetch}
+            onTouchStart={prefetch}
+            className="inline-flex max-w-full items-center gap-2 rounded-md font-mono text-sm font-bold tracking-[.015em] text-primary transition hover:text-primary-hover focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+          >
+            <span>#{order.id.slice(0, 8).toUpperCase()}</span>
+            <span className="sr-only">{order.id}</span>
+          </Link>
+        </div>
+        <div className="flex flex-col items-start gap-1.5 sm:items-end">
+          <span className="text-[10px] font-bold uppercase tracking-[.1em] text-muted">
+            Payment
+          </span>
+          <StatusPill status={payment} />
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 border-y border-border py-4 sm:grid-cols-3 sm:gap-4">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#f2f6ff] text-primary">
+            <CalendarDays aria-hidden="true" size={16} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted">Order date</p>
+            <p className="mt-1 text-sm font-semibold text-ink">
+              {formatOrderDate(order.createdAt)}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex min-w-0 items-start gap-2.5">
+          <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#f2f6ff] text-primary">
+            <Truck aria-hidden="true" size={16} />
+          </span>
+          <div className="min-w-0 space-y-1.5">
+            <p className="text-xs font-medium text-muted">Shipment</p>
+            <StatusPill status={shipment} />
+          </div>
+        </div>
+
+        <div className="flex items-start justify-between gap-3 sm:flex-col sm:items-end sm:justify-start">
+          <p className="text-xs font-medium text-muted">Order total</p>
+          <p className="text-xl font-extrabold leading-none tracking-tight text-ink tabular-nums">
+            {money(order.totalMinor, order.currency)}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <Link
+          href={detailsHref}
+          onMouseEnter={prefetch}
+          onFocus={prefetch}
+          onTouchStart={prefetch}
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#dce5fb] bg-[#f7f9ff] px-3.5 py-2 text-sm font-bold text-primary transition hover:border-primary/30 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          View order details
+          <ArrowRight aria-hidden="true" size={16} />
+        </Link>
+      </div>
+    </article>
+  )
+}
+
 export function OrderHistory() {
   const [page, setPage] = useState(1)
   const { data, error, reload, loading } = useAccountResource<OrderPage>(
@@ -62,73 +261,116 @@ export function OrderHistory() {
       limit: 20,
     },
   )
+
   return (
-    <section className="container-shell max-w-5xl space-y-5 py-10">
-      <h1 className="text-3xl font-black">Your orders</h1>
-      <Link href="/account" className="text-sm font-bold text-primary">
-        Your account
-      </Link>
-      <p className="text-sm text-muted">
-        Owned orders, newest first. Payment and delivery states are separate.
-      </p>
+    <section className="container-shell w-full max-w-5xl space-y-6 py-8 sm:py-10">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-extrabold uppercase tracking-[.14em] text-primary">
+            Order history
+          </p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-ink sm:text-[2rem]">
+            Your orders
+          </h1>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-muted">
+            Review your purchases and keep track of payment and delivery
+            progress.
+          </p>
+        </div>
+        <PendingButton
+          type="button"
+          aria-label="Refresh orders"
+          title="Refresh orders"
+          className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-white px-3.5 py-2 text-sm font-bold text-ink shadow-sm transition hover:border-primary/30 hover:bg-[#f7f9ff] disabled:cursor-wait disabled:opacity-70"
+          busy={loading}
+          pendingLabel="Refreshing…"
+          onClick={reload}
+        >
+          <RefreshCw aria-hidden="true" size={16} />
+          <span>Refresh</span>
+        </PendingButton>
+      </div>
+
       <ErrorMessage text={error} />
-      <PendingButton
-        className={actionClass}
-        busy={loading}
-        pendingLabel="Refreshing orders…"
-        onClick={reload}
-      >
-        Refresh orders
-      </PendingButton>
+
       {data ? (
         <>
-          <div className="space-y-4">
-            {data.items.map((row) => (
-              <article
-                key={row.id}
-                className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5"
-              >
-                <Link
-                  className="break-all font-bold text-primary"
-                  href={'/account/orders/' + row.id}
-                  onMouseEnter={() => prefetchOrder(row.id)}
-                  onFocus={() => prefetchOrder(row.id)}
-                  onTouchStart={() => prefetchOrder(row.id)}
-                >
-                  {row.id}
-                </Link>
-                <p className="text-sm">
-                  Order: {row.status} · Shipment:{' '}
-                  {row.fulfillment?.status || 'Not started'}
-                </p>
-                <p className="font-bold">
-                  {money(row.totalMinor, row.currency)}
-                </p>
-                <p className="text-xs text-muted">Created {row.createdAt}</p>
-              </article>
-            ))}
-            {!data.items.length && <p>No orders on this account.</p>}
-          </div>
-          <div className="flex items-center justify-between gap-4 text-sm">
-            <span>
-              {data.total} orders · Page {data.page} of{' '}
-              {Math.max(1, data.pages)}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#f7f9fc] px-3.5 py-3 sm:px-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <span className="inline-flex size-8 items-center justify-center rounded-lg bg-white text-primary shadow-sm">
+                <Package aria-hidden="true" size={16} />
+              </span>
+              <span>
+                {data.total} {data.total === 1 ? 'order' : 'orders'}
+              </span>
+            </div>
+            <span className="text-xs font-medium text-muted">
+              Sorted by newest first
             </span>
-            <button
-              className={actionClass}
-              disabled={page <= 1}
-              onClick={() => setPage((v) => v - 1)}
-            >
-              Previous orders
-            </button>
-            <button
-              className={actionClass}
-              disabled={page >= data.pages}
-              onClick={() => setPage((v) => v + 1)}
-            >
-              Next orders
-            </button>
           </div>
+
+          {data.items.length ? (
+            <div className="space-y-3.5 sm:space-y-4">
+              {data.items.map((row) => (
+                <OrderCard key={row.id} order={row} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-[#d8e0ee] bg-white px-5 py-10 text-center sm:px-8 sm:py-12">
+              <span className="mx-auto inline-flex size-14 items-center justify-center rounded-2xl bg-[#f2f6ff] text-primary">
+                <ShoppingBag aria-hidden="true" size={25} />
+              </span>
+              <h2 className="mt-4 text-lg font-extrabold tracking-tight text-ink">
+                No orders yet
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                No orders on this account.
+              </p>
+              <Link
+                href="/shop"
+                className="mt-5 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white transition hover:bg-primary-hover"
+              >
+                Explore the shop
+                <ArrowRight aria-hidden="true" size={16} />
+              </Link>
+            </div>
+          )}
+
+          {data.pages > 1 && (
+            <nav
+              aria-label="Order history pagination"
+              className="flex flex-col gap-3 rounded-2xl border border-border bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <p className="text-sm text-muted">
+                Page <span className="font-bold text-ink">{data.page}</span> of{' '}
+                <span className="font-bold text-ink">{data.pages}</span>
+                <span className="mx-1.5 text-border" aria-hidden="true">
+                  ·
+                </span>
+                {data.total} {data.total === 1 ? 'order' : 'orders'}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border px-3 py-2 text-sm font-bold text-ink transition hover:border-primary/30 hover:bg-[#f7f9ff] disabled:cursor-not-allowed disabled:opacity-45 sm:flex-none"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((value) => value - 1)}
+                >
+                  <ChevronLeft aria-hidden="true" size={16} />
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-xl border border-border px-3 py-2 text-sm font-bold text-ink transition hover:border-primary/30 hover:bg-[#f7f9ff] disabled:cursor-not-allowed disabled:opacity-45 sm:flex-none"
+                  disabled={page >= data.pages || loading}
+                  onClick={() => setPage((value) => value + 1)}
+                >
+                  Next
+                  <ChevronRight aria-hidden="true" size={16} />
+                </button>
+              </div>
+            </nav>
+          )}
         </>
       ) : (
         !error && <ContentSkeleton variant="list" label="Loading your orders" />
@@ -136,6 +378,7 @@ export function OrderHistory() {
     </section>
   )
 }
+
 function StatusBadge({ status }: { status: string }) {
   const tone = [
     'PAID',
