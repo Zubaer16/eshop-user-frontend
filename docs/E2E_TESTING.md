@@ -1,5 +1,15 @@
 # Storefront browser regressions
 
+## Stripe checkout preparation feedback - 2026-11-16
+
+The owner approved visible progress after the payment button is clicked. Checkout shows an immediately visible indeterminate bar with an accessible live status. Status changes follow existing checkout recovery, the combined stock validation/reservation/payment-start request, existing-order payment-session preparation and navigation to Stripe. The combined backend operation has one shared status because its internal stages are unavailable to the browser. The progress indicator has no percentage or timer-driven stages and respects reduced motion.
+
+Payment buttons retain duplicate-submission protection. Preparation feedback remains visible during Stripe navigation. Errors and stock shortages clear it through the existing recovery path. The uncertain-request retry notice is hidden during active preparation and remains available after failure. Restoring the page from browser back/forward cache clears the redirect feedback. Existing request IDs, frozen retries, ownership guards, reservation checks and API contracts are preserved.
+
+Project verification, type checking, lint, production build, all 83 unit tests and all 66 production-browser tests passed. The final browser run had zero retries or skips. New desktop/mobile regressions hold checkout start and Stripe navigation to verify the current status, visible progress, absence of percentage, reduced-motion rendering and suppressed premature retry/cart warnings. Existing delayed recovery, duplicate-click, stock-shortage, uncertain retry, account-switch and Stripe-return coverage passed. Desktop and mobile screenshots were inspected. The panel remains fixed near the bottom of the viewport while preparation is active.
+
+User Frontend source changed. The owner requested publication on main on 2026-11-16. Production deployment status is unverified.
+
 ## Account sidebar on order tracking - 2026-11-16
 
 The tracking route now uses the existing AccountShell in its route layout. Account navigation surrounds both tracking content and its loading fallback. The existing active-link matching marks Track your order as current. Desktop retains the left sidebar and mobile retains the horizontal account navigation. The existing /track URL, order query handling and authenticated owned-order API flow are preserved.

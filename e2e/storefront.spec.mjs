@@ -2149,6 +2149,9 @@ test('ordinary checkout defers recovery until payment and ignores duplicate clic
     await expect(
       page.getByRole('button', { name: 'Preparing checkout…', exact: true }),
     ).toBeDisabled()
+    await expect(
+      page.getByRole('progressbar', { name: 'Preparing Stripe Checkout' }),
+    ).toHaveAttribute('aria-valuetext', 'Checking for an existing checkout…')
     expect(starts).toBe(0)
   } finally {
     release()
@@ -2156,6 +2159,93 @@ test('ordinary checkout defers recovery until payment and ignores duplicate clic
   await page.waitForURL('https://checkout.stripe.com/**')
   expect(starts).toBe(1)
 })
+
+for (const width of [390, 1440]) {
+  test(`checkout shows real request stages and progress until Stripe opens at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    const scenario = await checkoutScenario(page, 2)
+    let releaseStart, releaseStripe
+    const startGate = new Promise((resolve) => {
+      releaseStart = resolve
+    })
+    const stripeGate = new Promise((resolve) => {
+      releaseStripe = resolve
+    })
+    await page.route('**/v1/checkout/start', async (route) => {
+      await startGate
+      await route.fulfill({ json: scenario.session() })
+    })
+    await page.route('https://checkout.stripe.com/**', async (route) => {
+      await stripeGate
+      await route.fulfill({
+        contentType: 'text/html',
+        body: '<h1>Stripe payment fixture</h1>',
+      })
+    })
+    const progress = page.getByRole('progressbar', {
+      name: 'Preparing Stripe Checkout',
+    })
+    try {
+      await page.goto('/checkout')
+      await expect(progress).toHaveCount(0)
+      await page
+        .getByRole('button', {
+          name: 'Continue to Stripe Checkout',
+          exact: true,
+        })
+        .click()
+      await expect(progress).toBeVisible()
+      await expect(progress).toHaveAttribute(
+        'aria-valuetext',
+        'Checking stock, reserving items and preparing payment…',
+      )
+      await expect(progress).not.toHaveAttribute('aria-valuenow')
+      await expect(
+        page.getByText(
+          'Finish saving your cart and resolve any cart errors before continuing.',
+          { exact: true },
+        ),
+      ).toHaveCount(0)
+      const bounds = await progress.boundingBox()
+      expect(bounds.y).toBeGreaterThanOrEqual(0)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(900)
+      expect(
+        await progress.locator('span').evaluate(
+          (element) => getComputedStyle(element).animationName,
+        ),
+      ).toBe('none')
+      await expect(
+        page.getByText(
+          'Your checkout could not be confirmed. Retry the same checkout to continue.',
+          { exact: true },
+        ),
+      ).toBeHidden()
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+      await page.screenshot({
+        path: info.outputPath('checkout-progress.png'),
+        fullPage: true,
+      })
+      releaseStart()
+      await expect(progress).toHaveAttribute(
+        'aria-valuetext',
+        'Opening Stripe Checkout…',
+      )
+      releaseStripe()
+      await page.waitForURL('https://checkout.stripe.com/**')
+    } finally {
+      releaseStart()
+      releaseStripe()
+      await page.unrouteAll({ behavior: 'wait' })
+    }
+  })
+}
 
 test('payment click resumes a recovered unpaid order without creating another checkout', async ({
   page,
@@ -2224,6 +2314,9 @@ test('recovery failure prevents a fresh checkout and allows another payment atte
   ).toBeVisible()
   expect(starts).toBe(0)
   await expect(pay).toBeEnabled()
+  await expect(
+    page.getByRole('progressbar', { name: 'Preparing Stripe Checkout' }),
+  ).toHaveCount(0)
   await pay.click()
   await page.waitForURL('https://checkout.stripe.com/**')
   expect(starts).toBe(1)

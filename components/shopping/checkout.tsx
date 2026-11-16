@@ -3,6 +3,7 @@ import { PendingButton, PendingIndicator } from '@/components/ui/pending-button'
 import Link from '@/components/ui/app-link'
 import { ChevronRight, LockKeyhole } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { api, ApiRequestError } from '@/lib/api/client'
 import { money } from '@/lib/api/catalog'
 import type { Address } from '@/lib/api/shopping'
@@ -54,6 +55,7 @@ export function Checkout() {
   const [intent, setIntent] = useState<CheckoutIntent | null>(null)
   const [shortages, setShortages] = useState<StockShortage[]>([])
   const [busy, setBusy] = useState(false)
+  const [checkoutStage, setCheckoutStage] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [deliveryLoading, setDeliveryLoading] = useState(false)
   const [error, setError] = useState('')
@@ -134,6 +136,13 @@ export function Checkout() {
   }
   useEffect(() => {
     mounted.current = true
+    const restorePage = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      redirecting.current = false
+      setBusy(false)
+      setCheckoutStage(null)
+    }
+    window.addEventListener('pageshow', restorePage)
     void (async () => {
       try {
         const query = new URLSearchParams(window.location.search)
@@ -154,6 +163,7 @@ export function Checkout() {
     })()
     return () => {
       mounted.current = false
+      window.removeEventListener('pageshow', restorePage)
     }
     // The authenticated boundary remounts this component when the account changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -258,11 +268,16 @@ export function Checkout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.id, order?.status, payment?.checkoutStarted])
 
-  async function run(work: () => Promise<void>, lockCart = true) {
+  async function run(
+    work: () => Promise<void>,
+    lockCart = true,
+    paymentFlow = false,
+  ) {
     if (writing.current) return
     writing.current = true
     let finishCheckout = () => {}
     setBusy(true)
+    if (paymentFlow) setCheckoutStage('Preparing checkout…')
     setError('')
     setNotice('')
     try {
@@ -275,6 +290,7 @@ export function Checkout() {
       if (lockCart) await shoppingLock(guarded)
       else await guarded()
     } catch (failure) {
+      redirecting.current = false
       if (!mounted.current) return
       const stock =
         failure instanceof ApiRequestError
@@ -298,10 +314,20 @@ export function Checkout() {
     } finally {
       writing.current = false
       finishCheckout()
-      if (mounted.current) setBusy(false)
+      if (mounted.current && !redirecting.current) {
+        setBusy(false)
+        setCheckoutStage(null)
+      }
     }
   }
+  function openStripe(url: string) {
+    guard()
+    redirecting.current = true
+    flushSync(() => setCheckoutStage('Opening Stripe Checkout…'))
+    window.location.assign(url)
+  }
   async function resumeOrder(id: string) {
+    setCheckoutStage('Preparing your secure payment session…')
     const result = hostedCheckout(
       await api.request('/v1/checkout/orders/' + id + '/session', {
         method: 'POST',
@@ -309,12 +335,13 @@ export function Checkout() {
       }),
     )
     guard()
-    redirecting.current = true
-    window.location.assign(result.url)
+    openStripe(result.url)
   }
   async function start(value: CheckoutIntent) {
+    setCheckoutStage('Preparing checkout…')
     await shopping.rememberCheckout(value.requestId, value.items)
     guard()
+    setCheckoutStage('Checking stock, reserving items and preparing payment…')
     const result = hostedCheckout(
       await api.request('/v1/checkout/start', {
         method: 'POST',
@@ -323,8 +350,7 @@ export function Checkout() {
       }),
     )
     guard()
-    redirecting.current = true
-    window.location.assign(result.url)
+    openStripe(result.url)
   }
   async function resolveStock(line: StockShortage, remove: boolean) {
     const confirmed = remove
@@ -385,6 +411,25 @@ export function Checkout() {
           <ErrorMessage
             text={error || deliveryError || addressResource.error}
           />
+          {checkoutStage && (
+            <div className="fixed inset-x-4 bottom-5 z-50 mx-auto max-w-xl space-y-3 rounded-2xl border border-primary/20 bg-white p-5 shadow-xl">
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-sm font-bold text-ink"
+              >
+                {checkoutStage}
+              </p>
+              <div
+                role="progressbar"
+                aria-label="Preparing Stripe Checkout"
+                aria-valuetext={checkoutStage}
+                className="checkout-progress"
+              >
+                <span />
+              </div>
+            </div>
+          )}
           {notice && (
             <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm">
               {notice}
@@ -421,7 +466,9 @@ export function Checkout() {
                       pendingLabel="Continue to Stripe Checkout"
                       className={actionClass}
                       disabled={busy}
-                      onClick={() => void run(() => resumeOrder(order.id))}
+                      onClick={() =>
+                        void run(() => resumeOrder(order.id), true, true)
+                      }
                     >
                       Continue to Stripe Checkout
                     </PendingButton>
@@ -488,7 +535,7 @@ export function Checkout() {
               <Link href="/cart" className="block w-fit font-bold text-primary">
                 Review your cart
               </Link>
-              {cartBlocked && (
+              {cartBlocked && !busy && (
                 <p role="status" className="rounded-xl bg-amber-50 p-4 text-sm">
                   Finish saving your cart and resolve any cart errors before
                   continuing.
@@ -690,7 +737,13 @@ export function Checkout() {
                     <ErrorMessage text="Delivery is unavailable for this destination. Choose another address or contact the store." />
                   ) : null}
                   {intent ? (
-                    <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <div
+                      className={
+                        busy
+                          ? 'hidden'
+                          : 'space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4'
+                      }
+                    >
                       <p className="text-sm">
                         Your checkout could not be confirmed. Retry the same
                         checkout to continue.
@@ -698,7 +751,9 @@ export function Checkout() {
                       <button
                         className={actionClass}
                         disabled={busy || cartBlocked}
-                        onClick={() => void run(() => start(intent))}
+                        onClick={() =>
+                          void run(() => start(intent), true, true)
+                        }
                       >
                         Retry checkout
                       </button>
@@ -718,34 +773,42 @@ export function Checkout() {
                         !shopping.cart?.items.length
                       }
                       onClick={() =>
-                        void run(async () => {
-                          if (!address) return
-                          const value = {
-                            ...checkoutSelection(
-                              address.countryCode,
-                              kind,
-                              appliedCoupon,
-                            ),
-                            requestId: crypto.randomUUID(),
-                            items: checkoutItems(shopping.cart),
-                            shippingAddress: shippingSnapshot(address),
-                          }
-                          const recovered = await recover()
-                          if (recovered.checkout) {
-                            const previous = recovered.checkout
-                            if (
-                              previous.order.status === 'PENDING_PAYMENT' &&
-                              (!previous.payment ||
-                                previous.payment.checkoutStarted)
+                        void run(
+                          async () => {
+                            if (!address) return
+                            const value = {
+                              ...checkoutSelection(
+                                address.countryCode,
+                                kind,
+                                appliedCoupon,
+                              ),
+                              requestId: crypto.randomUUID(),
+                              items: checkoutItems(shopping.cart),
+                              shippingAddress: shippingSnapshot(address),
+                            }
+                            setCheckoutStage(
+                              'Checking for an existing checkout…',
                             )
-                              await resumeOrder(previous.order.id)
-                            return
-                          }
-                          if (recovered.reservation?.status === 'ACTIVE') return
-                          setIntent(value)
-                          setShortages([])
-                          await start(value)
-                        })
+                            const recovered = await recover()
+                            if (recovered.checkout) {
+                              const previous = recovered.checkout
+                              if (
+                                previous.order.status === 'PENDING_PAYMENT' &&
+                                (!previous.payment ||
+                                  previous.payment.checkoutStarted)
+                              )
+                                await resumeOrder(previous.order.id)
+                              return
+                            }
+                            if (recovered.reservation?.status === 'ACTIVE')
+                              return
+                            setIntent(value)
+                            setShortages([])
+                            await start(value)
+                          },
+                          true,
+                          true,
+                        )
                       }
                     >
                       <LockKeyhole size={16} className="mr-2" />
