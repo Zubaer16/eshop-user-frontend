@@ -2146,9 +2146,7 @@ test('ordinary checkout defers recovery until payment and ignores duplicate clic
       button.click()
     })
     await expect.poll(() => recoveryCalls).toBe(1)
-    await expect(
-      page.getByRole('button', { name: 'Preparing checkout…', exact: true }),
-    ).toBeDisabled()
+    await expect(page.locator('button[aria-busy="true"]')).toBeDisabled()
     await expect(
       page.getByRole('progressbar', { name: 'Preparing Stripe Checkout' }),
     ).toHaveAttribute('aria-valuetext', 'Checking for an existing checkout…')
@@ -2197,6 +2195,26 @@ for (const width of [390, 1440]) {
           exact: true,
         })
         .click()
+      const dialog = page.getByRole('dialog', {
+        name: 'Preparing your checkout',
+        exact: true,
+      })
+      await expect(dialog).toBeVisible()
+      const steps = dialog.getByRole('listitem')
+      await expect(steps).toHaveCount(3)
+      await expect(steps.nth(0)).toContainText('Completed')
+      await expect(steps.nth(1)).toContainText('In progress')
+      await expect(steps.nth(2)).toContainText('Waiting')
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeVisible()
+      await page.mouse.click(2, 2)
+      await expect(dialog).toBeVisible()
+      await page.keyboard.press('Tab')
+      expect(
+        await dialog.evaluate((element) =>
+          element.contains(document.activeElement),
+        ),
+      ).toBe(true)
       await expect(progress).toBeVisible()
       await expect(progress).toHaveAttribute(
         'aria-valuetext',
@@ -2213,9 +2231,9 @@ for (const width of [390, 1440]) {
       expect(bounds.y).toBeGreaterThanOrEqual(0)
       expect(bounds.y + bounds.height).toBeLessThanOrEqual(900)
       expect(
-        await progress.locator('span').evaluate(
-          (element) => getComputedStyle(element).animationName,
-        ),
+        await progress
+          .locator('span')
+          .evaluate((element) => getComputedStyle(element).animationName),
       ).toBe('none')
       await expect(
         page.getByText(
@@ -2230,7 +2248,7 @@ for (const width of [390, 1440]) {
       ).toBe(true)
       await page.screenshot({
         path: info.outputPath('checkout-progress.png'),
-        fullPage: true,
+        fullPage: false,
       })
       releaseStart()
       await expect(progress).toHaveAttribute(
@@ -2314,6 +2332,9 @@ test('recovery failure prevents a fresh checkout and allows another payment atte
   ).toBeVisible()
   expect(starts).toBe(0)
   await expect(pay).toBeEnabled()
+  await expect(
+    page.getByRole('dialog', { name: 'Preparing your checkout', exact: true }),
+  ).toHaveCount(0)
   await expect(
     page.getByRole('progressbar', { name: 'Preparing Stripe Checkout' }),
   ).toHaveCount(0)

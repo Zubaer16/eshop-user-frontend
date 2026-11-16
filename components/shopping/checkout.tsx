@@ -29,6 +29,7 @@ import { shoppingLock } from '@/lib/api/shopping-lock'
 import { checkoutItems } from '@/lib/stores/local-cart'
 import { useCommerce } from './commerce-provider'
 import { actionClass, inputClass, ErrorMessage } from './cart'
+import { CheckoutProgress, type CheckoutStage } from './checkout-progress'
 
 type CheckoutIntent = Selection & {
   requestId: string
@@ -55,7 +56,7 @@ export function Checkout() {
   const [intent, setIntent] = useState<CheckoutIntent | null>(null)
   const [shortages, setShortages] = useState<StockShortage[]>([])
   const [busy, setBusy] = useState(false)
-  const [checkoutStage, setCheckoutStage] = useState<string | null>(null)
+  const [checkoutStage, setCheckoutStage] = useState<CheckoutStage | null>(null)
   const [loading, setLoading] = useState(false)
   const [deliveryLoading, setDeliveryLoading] = useState(false)
   const [error, setError] = useState('')
@@ -277,7 +278,7 @@ export function Checkout() {
     writing.current = true
     let finishCheckout = () => {}
     setBusy(true)
-    if (paymentFlow) setCheckoutStage('Preparing checkout…')
+    if (paymentFlow) setCheckoutStage('preparing')
     setError('')
     setNotice('')
     try {
@@ -323,11 +324,11 @@ export function Checkout() {
   function openStripe(url: string) {
     guard()
     redirecting.current = true
-    flushSync(() => setCheckoutStage('Opening Stripe Checkout…'))
+    flushSync(() => setCheckoutStage('redirect'))
     window.location.assign(url)
   }
   async function resumeOrder(id: string) {
-    setCheckoutStage('Preparing your secure payment session…')
+    setCheckoutStage('session')
     const result = hostedCheckout(
       await api.request('/v1/checkout/orders/' + id + '/session', {
         method: 'POST',
@@ -338,10 +339,9 @@ export function Checkout() {
     openStripe(result.url)
   }
   async function start(value: CheckoutIntent) {
-    setCheckoutStage('Preparing checkout…')
+    setCheckoutStage('start')
     await shopping.rememberCheckout(value.requestId, value.items)
     guard()
-    setCheckoutStage('Checking stock, reserving items and preparing payment…')
     const result = hostedCheckout(
       await api.request('/v1/checkout/start', {
         method: 'POST',
@@ -411,25 +411,7 @@ export function Checkout() {
           <ErrorMessage
             text={error || deliveryError || addressResource.error}
           />
-          {checkoutStage && (
-            <div className="fixed inset-x-4 bottom-5 z-50 mx-auto max-w-xl space-y-3 rounded-2xl border border-primary/20 bg-white p-5 shadow-xl">
-              <p
-                role="status"
-                aria-live="polite"
-                className="text-sm font-bold text-ink"
-              >
-                {checkoutStage}
-              </p>
-              <div
-                role="progressbar"
-                aria-label="Preparing Stripe Checkout"
-                aria-valuetext={checkoutStage}
-                className="checkout-progress"
-              >
-                <span />
-              </div>
-            </div>
-          )}
+          {checkoutStage && <CheckoutProgress stage={checkoutStage} />}
           {notice && (
             <p role="status" className="rounded-xl bg-blue-50 p-4 text-sm">
               {notice}
@@ -786,9 +768,7 @@ export function Checkout() {
                               items: checkoutItems(shopping.cart),
                               shippingAddress: shippingSnapshot(address),
                             }
-                            setCheckoutStage(
-                              'Checking for an existing checkout…',
-                            )
+                            setCheckoutStage('recovery')
                             const recovered = await recover()
                             if (recovered.checkout) {
                               const previous = recovered.checkout

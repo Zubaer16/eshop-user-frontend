@@ -1,5 +1,13 @@
 # Storefront architecture
 
+## Checkout preparation overlay - 2026-11-16
+
+The owner requested a design-matched step timeline similar to the supplied reference and permitted an overlay or separate page. The existing checkout preparation feedback now uses a centered Radix modal with the storefront palette, rounded card styling and a dimmed backdrop. It displays completed, in-progress and waiting states for checkout review, the combined stock/reservation/payment operation, and Stripe navigation. Resuming an existing order displays payment-session preparation. Backend acknowledgements drive completion markers. The indeterminate progress bar and live status remain available.
+
+The overlay keeps focus and interactions within the preparation surface while the existing request runs. Escape and outside clicks preserve the active operation. Existing error and shortage handling closes the overlay and restores the checkout correction/retry flow. The modal has viewport-bounded scrolling for short screens and reduced-motion rendering. Validation passed project verification, type checking, lint, production build, all 83 unit tests and all 66 production-browser tests. The final browser run used zero retries or skips. Extended overlay coverage verifies completed/active/waiting steps, modal naming, focus containment, Escape/outside interaction handling, delayed preparation, Stripe handoff, error dismissal, reduced motion and viewport bounds. Existing shortage correction and recovery tests passed. Desktop and mobile screenshots were inspected.
+
+User Frontend source changes in this batch. The owner requested publication on main on 2026-11-16. Production deployment status is unverified.
+
 ## Stripe checkout preparation feedback - 2026-11-16
 
 The owner approved visible progress after the payment button is clicked. Checkout shows an immediately visible indeterminate bar with an accessible live status. Status changes follow existing checkout recovery, the combined stock validation/reservation/payment-start request, existing-order payment-session preparation and navigation to Stripe. The combined backend operation has one shared status because its internal stages are unavailable to the browser. The progress indicator has no percentage or timer-driven stages and respects reduced motion.
