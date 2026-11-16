@@ -430,6 +430,7 @@ export function Shop({
                     key={product.id}
                     product={product}
                     priority={index < 4}
+                    layout="catalog"
                   />
                 ))}
               </div>

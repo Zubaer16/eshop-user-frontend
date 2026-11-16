@@ -657,8 +657,12 @@ test('fresh server category data seeds hydration without a duplicate browser cat
 }) => {
   await mock(page)
   let reads = 0
+  let configurationReads = 0
   page.on('request', (request) => {
-    if (new URL(request.url()).pathname === '/v1/categories') reads++
+    const path = new URL(request.url()).pathname
+    if (path === '/v1/categories') reads++
+    if (['/v1/store/bootstrap', '/v1/store/operations'].includes(path))
+      configurationReads++
   })
   await page.goto('/shop?q=category-seed-probe')
   await page
@@ -673,6 +677,7 @@ test('fresh server category data seeds hydration without a duplicate browser cat
     await page.locator('header a[href^="/shop?category="]').count(),
   ).toBeGreaterThan(0)
   expect(reads).toBe(0)
+  expect(configurationReads).toBe(0)
 })
 
 test('failed category refresh retains the rendered cards and retries through the existing control', async ({
@@ -716,6 +721,129 @@ test('failed category refresh retains the rendered cards and retries through the
     section.getByRole('link', { name: 'Electronics', exact: true }),
   ).toBeVisible()
   await expect(section.locator('a[href^="/shop?category="]')).toHaveCount(1)
+})
+
+test('homepage keeps the hero stable after a failed refresh and avoids redundant complete-collection reads', async ({
+  page,
+}) => {
+  await mock(page)
+  let fail = false
+  let collectionReads = 0
+  const complete = {
+    ...homepage,
+    collections: [
+      {
+        ...collection,
+        products: products.slice(0, 8),
+        productsTruncated: true,
+        productCount: 10,
+      },
+    ],
+  }
+  await page.route('**/v1/store/homepage', (route) =>
+    route.fulfill(
+      fail
+        ? { status: 503, json: { message: 'Unavailable' } }
+        : { json: complete },
+    ),
+  )
+  await page.route('**/v1/store/collections/new-arrivals', (route) => {
+    collectionReads++
+    return route.fulfill({ json: collection })
+  })
+  await openControlled(page, '/')
+  await expect(page.locator('#collection-panel article')).toHaveCount(8)
+  const hero = page.locator('main article').first()
+  await expect(hero.locator('img')).toHaveCount(1)
+  await expect(hero.locator('img')).toHaveAttribute('fetchpriority', 'high')
+  const top = await hero.evaluate(
+    (element) => element.getBoundingClientRect().top + scrollY,
+  )
+  fail = true
+  await page
+    .getByRole('button', { name: 'Refresh featured content', exact: true })
+    .click()
+  await expect(page.locator('main').getByRole('alert')).toContainText(
+    'Published store content is unavailable.',
+  )
+  expect(
+    await hero.evaluate(
+      (element) => element.getBoundingClientRect().top + scrollY,
+    ),
+  ).toBe(top)
+  expect(collectionReads).toBe(0)
+  fail = false
+  await page
+    .getByRole('button', { name: 'Retry loading content', exact: true })
+    .click()
+  await expect(page.locator('main').getByRole('alert')).toHaveCount(0)
+  const sizes = await page
+    .locator('#collection-panel img')
+    .first()
+    .getAttribute('sizes')
+  expect(
+    await page.evaluate(
+      (value) =>
+        value
+          .split(/,\s*(?=\(min-width|calc)/)
+          .every((part) =>
+            CSS.supports('width', part.slice(part.indexOf('calc('))),
+          ),
+      sizes,
+    ),
+  ).toBe(true)
+})
+
+test('background store-configuration failures retain the current brand', async ({
+  page,
+}) => {
+  const clockStart = Date.now()
+  await page.clock.setFixedTime(clockStart + 60000)
+  await mock(page)
+  let reads = 0
+  let fail = false
+  await page.route('**/v1/store/bootstrap', (route) => {
+    reads++
+    return route.fulfill(
+      fail
+        ? { status: 503, json: { message: 'Unavailable' } }
+        : {
+            json: {
+              profile: {
+                configured: true,
+                storeName: 'Fixture Store',
+                supportEmail: null,
+                supportNotice: '',
+                websiteUrl: '',
+              },
+              content: {
+                seoTitle: '',
+                seoDescription: '',
+                footerText: '',
+                privacyPolicy: '',
+                termsOfService: '',
+                returnPolicy: '',
+              },
+              branding: { logo: null, favicon: null },
+            },
+          },
+    )
+  })
+  await page.route('**/v1/store/operations', route => route.fulfill(fail ? { status: 503, json: { message: 'Unavailable' } } : { json: {
+    configured: true, locale: 'en-US', displayCurrency: 'EUR', themeMode: 'light', accentColor: '#2459e8', showWishlist: true, showPolicies: true,
+  } }))
+  await page.goto('/shop')
+  const logo = page
+    .locator('header')
+    .getByRole('link', { name: 'Fixture Store home', exact: true })
+  await expect(logo).toBeVisible()
+  await expect(page.getByLabel('Preferred display currency; prices retain their listed currency')).toHaveText('EUR')
+  fail = true
+  await page.clock.setFixedTime(clockStart + 120000)
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect.poll(() => reads).toBe(2)
+  await expect(logo).toBeVisible()
+  await expect(page.getByLabel('Preferred display currency; prices retain their listed currency')).toHaveText('EUR')
 })
 
 async function mock(
@@ -875,6 +1003,7 @@ for (const width of [390, 768, 1440]) {
 test('explicit branding overrides both primary and hover; one banner spans the hero row', async ({
   page,
 }) => {
+  await page.clock.setFixedTime(Date.now() + 60000)
   await mock(page, { configured: true, singleBanner: true })
   await openControlled(page, '/')
   await expect

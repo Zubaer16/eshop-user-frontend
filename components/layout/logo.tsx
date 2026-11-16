@@ -1,6 +1,6 @@
 'use client'
 import Image from 'next/image'
-import { useStoreConfiguration } from '@/components/store/store-content'
+import { useStoreConfiguration } from '@/components/store/store-configuration'
 import { imageUrl } from '@/lib/api/catalog'
 import Link from '@/components/ui/app-link'
 
@@ -16,6 +16,7 @@ export function Logo({ light = false }: { light?: boolean }) {
     >
       <Image
         src={logo || '/logo-mark.svg'}
+        className="size-[39px] shrink-0 object-contain"
         width={39}
         height={39}
         alt=""

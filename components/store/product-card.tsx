@@ -5,6 +5,7 @@ import Link from '@/components/ui/app-link'
 import { useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowRight, Box, Heart, Plus } from 'lucide-react'
+import { cardImageSizes } from '@/lib/card-image-sizes'
 import { imageUrl, money, type Product } from '@/lib/api/catalog'
 import { additionPreview } from '@/lib/api/cart-preview'
 import { validateSelection } from '@/lib/api/shopping'
@@ -15,9 +16,11 @@ import type { StoreProductCard } from './store-content'
 export function ProductCard({
   product,
   priority = false,
+  layout = 'grid',
 }: {
   product: Product | StoreProductCard
   priority?: boolean
+  layout?: 'grid' | 'catalog'
 }) {
   const shopping = useCommerce(
     useShallow((state) => ({
@@ -79,7 +82,7 @@ export function ProductCard({
           <img
             src={src}
             srcSet={image?.srcSet}
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+            sizes={cardImageSizes(image, layout)}
             alt={image?.alt || product.title}
             width={image?.width}
             height={image?.height}

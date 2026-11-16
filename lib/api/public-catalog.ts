@@ -8,6 +8,10 @@ import {
   slugSegment,
   type ShopQuery,
 } from './catalog'
+import type {
+  Bootstrap,
+  Operations,
+} from '@/components/store/store-configuration'
 import type { Home, Collection } from '@/components/store/store-content'
 
 async function publicRead(
@@ -39,6 +43,12 @@ export const publicHomepage = cache(async () => {
     throw new Error('Invalid homepage response.')
   return data
 })
+export const publicBootstrap = cache(
+  async () => publicRead('/v1/store/bootstrap') as Promise<Bootstrap>,
+)
+export const publicOperations = cache(
+  async () => publicRead('/v1/store/operations') as Promise<Operations>,
+)
 export const publicCategories = cache(async () =>
   readCategories(await publicRead('/v1/categories')),
 )

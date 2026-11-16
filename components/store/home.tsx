@@ -30,7 +30,13 @@ function safeStorePath(value: string) {
   )
 }
 
-function HeroBanner({ banner }: { banner: Home['banners'][number] }) {
+function HeroBanner({
+  banner,
+  fullWidth,
+}: {
+  banner: Home['banners'][number]
+  fullWidth: boolean
+}) {
   const src = imageUrl(banner.image?.url)
   const href = safeStorePath(banner.ctaHref) ? banner.ctaHref : null
 
@@ -40,32 +46,25 @@ function HeroBanner({ banner }: { banner: Home['banners'][number] }) {
     >
       {src ? (
         <>
-          <div className="absolute inset-0 hidden md:block">
+          <div className="absolute inset-0">
             <img
               src={src}
               srcSet={banner.image?.srcSet}
-              sizes={banner.image?.sizes || '75vw'}
+              sizes={
+                fullWidth
+                  ? '(min-width: 1280px) 1240px, (min-width: 768px) calc(100vw - 64px), calc(100vw - 32px)'
+                  : '(min-width: 1280px) 780px, (min-width: 1024px) 64vw, (min-width: 768px) calc(100vw - 64px), calc(100vw - 32px)'
+              }
               alt={banner.image?.alt || banner.headline}
               width={banner.image?.width}
               height={banner.image?.height}
+              loading="eager"
               fetchPriority="high"
               decoding="async"
-              className="h-full w-full object-cover object-center"
+              className="h-full w-full object-cover object-[68%_center] opacity-35 md:object-center md:opacity-100"
             />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#123fae] via-[#2459e8]/90 via-[38%] to-[#2459e8]/10" />
-          </div>
-          <div className="absolute inset-0 md:hidden">
-            <img
-              src={src}
-              srcSet={banner.image?.srcSet}
-              sizes="100vw"
-              alt=""
-              width={banner.image?.width}
-              height={banner.image?.height}
-              decoding="async"
-              className="h-full w-full object-cover object-[68%_center] opacity-35"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#123fae] via-[#2459e8]/70 to-transparent" />
+            <div className="absolute inset-0 hidden bg-gradient-to-r from-[#123fae] via-[#2459e8]/90 via-[38%] to-[#2459e8]/10 md:block" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#123fae] via-[#2459e8]/70 to-transparent md:hidden" />
           </div>
         </>
       ) : (
@@ -196,7 +195,11 @@ function PromoBannerCard({
           <img
             src={src}
             srcSet={banner.image?.srcSet}
-            sizes={banner.image?.sizes || '(max-width: 1024px) 40vw, 18vw'}
+            sizes={
+              index < 2
+                ? '(min-width: 1280px) 160px, (min-width: 1024px) 13vw, (min-width: 640px) 18vw, 36vw'
+                : '(min-width: 1280px) 145px, (min-width: 640px) 18vw, 36vw'
+            }
             alt={banner.image?.alt || banner.headline}
             width={banner.image?.width}
             height={banner.image?.height}
@@ -363,6 +366,8 @@ function CollectionTabs({
     if (
       !activeCollection ||
       !activeCollection.productsTruncated ||
+      activeCollection.products.length >=
+        Math.min(8, activeCollection.productCount) ||
       expanded[activeCollection.slug]
     )
       return
@@ -606,7 +611,7 @@ export function Homepage({
           <div
             className={`grid gap-4 ${sidePromotions.length ? 'lg:grid-cols-[1.78fr_1fr]' : ''}`}
           >
-            <HeroBanner banner={hero} />
+            <HeroBanner banner={hero} fullWidth={sidePromotions.length === 0} />
             {sidePromotions.length > 0 && (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
                 {sidePromotions.map((banner, index) => (

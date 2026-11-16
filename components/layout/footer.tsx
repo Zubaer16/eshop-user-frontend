@@ -3,11 +3,13 @@ import Link from '@/components/ui/app-link'
 import { prefetchOrders } from '@/components/account/account-preload'
 import { Mail, PackageCheck, ShieldCheck, ShoppingBag } from 'lucide-react'
 import { Logo } from './logo'
-import { useStoreConfiguration } from '@/components/store/store-content'
+import { useStoreConfiguration } from '@/components/store/store-configuration'
+import { useCommerce } from '@/components/shopping/commerce-provider'
 import { useCatalog } from '@/components/catalog/catalog-provider'
 
 export function Footer() {
   const store = useStoreConfiguration()
+  const authenticated = useCommerce((state) => state.authenticated)
   const { categories } = useCatalog()
   const roots = categories
     .filter((item) => item.active && item.parentId === null)
@@ -69,17 +71,25 @@ export function Footer() {
               <Link href="/shop?tag=sale">Special offers</Link>
               <Link href="/shop?tag=new">New arrivals</Link>
               {store.operations?.showWishlist !== false && (
-                <Link href="/wishlist">Saved items</Link>
+                <Link
+                  href="/wishlist"
+                  prefetch={authenticated ? undefined : false}
+                >
+                  Saved items
+                </Link>
               )}
               <Link
                 href="/account/orders"
+                prefetch={authenticated ? undefined : false}
                 onMouseEnter={prefetchOrders}
                 onFocus={prefetchOrders}
                 onTouchStart={prefetchOrders}
               >
                 Your orders
               </Link>
-              <Link href="/track">Track your order</Link>
+              <Link href="/track" prefetch={authenticated ? undefined : false}>
+                Track your order
+              </Link>
             </nav>
           </div>
           <div>
@@ -102,8 +112,18 @@ export function Footer() {
               Here to help
             </h2>
             <nav className="grid gap-3 text-sm text-[#b8c3d9]">
-              <Link href="/account">Your account</Link>
-              <Link href="/account/notifications">Inbox</Link>
+              <Link
+                href="/account"
+                prefetch={authenticated ? undefined : false}
+              >
+                Your account
+              </Link>
+              <Link
+                href="/account/notifications"
+                prefetch={authenticated ? undefined : false}
+              >
+                Inbox
+              </Link>
               {store.operations?.showPolicies && (
                 <>
                   <Link href="/policies/privacy">Privacy</Link>

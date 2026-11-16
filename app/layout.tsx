@@ -4,26 +4,16 @@ import { UserBoundary } from '@/components/auth/user-boundary'
 import { Header } from '@/components/layout/header'
 import { Footer } from '@/components/layout/footer'
 import { Providers } from '@/components/layout/providers'
-import { apiOrigin } from '@/lib/api/runtime'
 import { imageUrl } from '@/lib/api/catalog'
-import { publicCategories } from '@/lib/api/public-catalog'
+import {
+  publicCategories,
+  publicBootstrap,
+  publicOperations,
+} from '@/lib/api/public-catalog'
 
 export async function generateMetadata(): Promise<Metadata> {
   try {
-    const origin = apiOrigin(
-      process.env.ESHOP_API_URL ??
-        process.env.NEXT_PUBLIC_ESHOP_API_URL ??
-        process.env.NEXT_PUBLIC_KOOKABURRA_API_URL,
-      process.env.NODE_ENV === 'production',
-    )
-    const response = await fetch(origin + '/v1/store/bootstrap', {
-      next: { revalidate: 30 },
-      credentials: 'omit',
-      redirect: 'error',
-      signal: AbortSignal.timeout(5000),
-    })
-    if (!response.ok) throw new Error('Unavailable')
-    const data = await response.json(),
+    const data = await publicBootstrap(),
       title = data.content.seoTitle || data.profile.storeName || 'eShop',
       icon = imageUrl(data.branding.favicon?.url)
     return {
@@ -57,7 +47,12 @@ export const viewport: Viewport = {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const initialCategories = await publicCategories().catch(() => null)
+  const [initialCategories, initialBootstrap, initialOperations] =
+    await Promise.all([
+      publicCategories().catch(() => null),
+      publicBootstrap().catch(() => null),
+      publicOperations().catch(() => null),
+    ])
   return (
     <html lang="en">
       <body className="antialiased">
@@ -66,6 +61,8 @@ export default async function RootLayout({
         </a>
         <Providers
           initialCategories={initialCategories}
+          initialBootstrap={initialBootstrap}
+          initialOperations={initialOperations}
           categoriesExpiresAt={Date.now() + 30000}
         >
           <Header />

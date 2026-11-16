@@ -29,7 +29,7 @@ import { useCatalog } from '@/components/catalog/catalog-provider'
 import { cn } from '@/lib/utils'
 import { useUiCopy } from '@/hooks/use-ui-copy'
 import { useCommerce } from '@/components/shopping/commerce-provider'
-import { useStoreConfiguration } from '@/components/store/store-content'
+import { useStoreConfiguration } from '@/components/store/store-configuration'
 
 function SearchBox({ compact = false }: { compact?: boolean }) {
   const router = useNavigationRouter()
@@ -86,6 +86,7 @@ export function Header() {
     useShallow((state) => {
       return {
         setCartOpen: state.setCartOpen,
+        authenticated: state.authenticated,
         cartCount:
           state.cart?.items.reduce((sum, item) => sum + item.quantity, 0) || 0,
         wishCount: state.wishlist?.count || 0,
@@ -172,6 +173,7 @@ export function Header() {
           </span>
           <Link
             href="/account"
+            prefetch={shopping.authenticated ? undefined : false}
             onMouseEnter={prefetchOrders}
             onFocus={prefetchOrders}
             onTouchStart={prefetchOrders}
@@ -186,6 +188,7 @@ export function Header() {
           {
             <Link
               href="/account/notifications"
+              prefetch={shopping.authenticated ? undefined : false}
               className="rounded-lg p-2 text-sm font-bold text-primary"
             >
               Inbox
@@ -194,6 +197,7 @@ export function Header() {
           {store.operations?.showWishlist !== false && (
             <Link
               href="/wishlist"
+              prefetch={shopping.authenticated ? undefined : false}
               aria-label={t.wishlist}
               title={t.wishlist}
               className="relative flex size-10 items-center justify-center rounded-lg hover:bg-slate-100"
@@ -352,6 +356,7 @@ export function Header() {
           </div>
           <Link
             href="/account"
+            prefetch={shopping.authenticated ? undefined : false}
             onMouseEnter={prefetchOrders}
             onFocus={prefetchOrders}
             onTouchStart={prefetchOrders}
