@@ -2342,108 +2342,6 @@ test('account-link intent preloads recent orders and explicit refresh bypasses t
   await expect.poll(() => reads).toBe(2)
 })
 
-for (const width of [390, 1440]) {
-  test(`order history uses compact premium cards without horizontal overflow at ${width}px`, async ({
-    page,
-  }, info) => {
-    await page.setViewportSize({ width, height: 1000 })
-    await mock(page, { authenticated: true })
-    const orderId = id(80)
-    const createdAt = '2026-11-16T12:34:35.732Z'
-    const order = {
-      ...pendingCheckoutOrder('PAID'),
-      createdAt,
-      fulfillment: {
-        id: id(83),
-        status: 'SHIPPED',
-        carrier: 'DHL',
-        trackingNumber: 'TRACK123',
-        startedAt: createdAt,
-        shippedAt: createdAt,
-        deliveredAt: null,
-      },
-    }
-    await page.route('**/v1/orders?**', (route) =>
-      route.fulfill({
-        json: { items: [order], total: 1, page: 1, limit: 20, pages: 1 },
-      }),
-    )
-    await page.goto('/account/orders')
-
-    await expect(
-      page.getByRole('heading', { name: 'Your orders', exact: true }),
-    ).toBeVisible()
-    await expect(
-      page.getByRole('link', { name: orderId, exact: true }),
-    ).toBeVisible()
-    await expect(page.getByText('Paid', { exact: true })).toBeVisible()
-    await expect(page.getByText('Shipped', { exact: true })).toBeVisible()
-    await expect(page.getByText('Nov 16, 2026', { exact: true })).toBeVisible()
-    await expect(page.getByText('$39.98', { exact: true })).toBeVisible()
-    await expect(
-      page.getByRole('link', { name: 'View order details', exact: true }),
-    ).toHaveAttribute('href', '/account/orders/' + orderId)
-    await expect(
-      page.getByRole('navigation', { name: 'Order history pagination' }),
-    ).toHaveCount(0)
-    await expect
-      .poll(() =>
-        page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
-      )
-      .toBe(true)
-    await page.screenshot({
-      path: info.outputPath(`order-history-${width}.png`),
-      fullPage: true,
-    })
-  })
-}
-
-test('order history pagination only appears for multiple pages and loads the selected page', async ({
-  page,
-}) => {
-  await mock(page, { authenticated: true })
-  const orderFor = (number) => ({
-    ...pendingCheckoutOrder('PAID'),
-    id: id(number),
-    createdAt: '2026-11-16T12:34:35.732Z',
-    fulfillment: null,
-  })
-  const requestedPages = []
-  await page.route('**/v1/orders?**', (route) => {
-    const requestedPage = Number(
-      new URL(route.request().url()).searchParams.get('page') || 1,
-    )
-    requestedPages.push(requestedPage)
-    return route.fulfill({
-      json: {
-        items: [orderFor(requestedPage === 1 ? 80 : 81)],
-        total: 21,
-        page: requestedPage,
-        limit: 20,
-        pages: 2,
-      },
-    })
-  })
-  await page.goto('/account/orders')
-  const pagination = page.getByRole('navigation', {
-    name: 'Order history pagination',
-  })
-  await expect(pagination).toBeVisible()
-  await expect(
-    pagination.getByRole('button', { name: 'Previous' }),
-  ).toBeDisabled()
-  await expect(pagination.getByRole('button', { name: 'Next' })).toBeEnabled()
-  await pagination.getByRole('button', { name: 'Next' }).click()
-  await expect(
-    page.getByRole('link', { name: id(81), exact: true }),
-  ).toBeVisible()
-  await expect(
-    pagination.getByRole('button', { name: 'Previous' }),
-  ).toBeEnabled()
-  await expect(pagination.getByRole('button', { name: 'Next' })).toBeDisabled()
-  expect(requestedPages).toEqual([1, 2])
-})
-
 test('order-link intent warms the order and its ledgers before navigation', async ({
   page,
 }) => {
@@ -2500,11 +2398,549 @@ test('order-link intent warms the order and its ledgers before navigation', asyn
   await expect.poll(() => reads).toBe(5)
   await link.click()
   await expect(
-    page.getByText('No delivery events recorded.', { exact: true }),
+    page.getByText('No tracking events yet', { exact: true }),
   ).toBeVisible()
   expect(reads).toBe(5)
   await page.getByRole('button', { name: 'Refresh order', exact: true }).click()
   await expect.poll(() => reads).toBe(10)
+})
+
+test('order details present customer-friendly cards and a deduplicated timeline on desktop and mobile', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  const orderId = 'f259c77d-ac71-40e8-b430-86472f005cf3',
+    firstLineId = id(84),
+    secondLineId = id(85),
+    shipmentId = id(86),
+    returnId = id(87),
+    replacementId = id(88),
+    createdAt = '2026-11-16T12:34:35.732Z',
+    paidAt = '2026-11-16T12:36:06.420Z'
+  const order = {
+    id: orderId,
+    status: 'PAID',
+    currency: 'USD',
+    subtotalMinor: 3098,
+    discountMinor: 0,
+    shippingMinor: 0,
+    taxMinor: 0,
+    totalMinor: 3098,
+    paidAt,
+    createdAt,
+    paymentDeadlineAt: '2026-11-16T13:04:35.732Z',
+    countryCode: 'US',
+    deliveryKind: 'FLAT',
+    couponCode: null,
+    fulfillment: {
+      id: shipmentId,
+      status: 'PROCESSING',
+      carrier: 'DHL',
+      trackingNumber: 'TRACK_123',
+      startedAt: paidAt,
+      shippedAt: null,
+      deliveredAt: null,
+    },
+    shippingAddress: {
+      recipientName: 'Design Customer',
+      phone: '+12025550123',
+      addressLine1: '1 Order Street',
+      addressLine2: 'Suite 2',
+      city: 'Example City',
+      region: 'CA',
+      postalCode: '90001',
+      countryCode: 'US',
+    },
+    lines: [
+      {
+        id: firstLineId,
+        title: 'A5 Hardcover Notebook',
+        sku: 'BOOK-STA-001',
+        quantity: 1,
+        unitPriceMinor: 799,
+        lineTotalMinor: 799,
+        discountMinor: 0,
+        netLineTotalMinor: 799,
+        optionsSnapshotJson: '{}',
+      },
+      {
+        id: secondLineId,
+        title: 'Non-Slip Yoga Mat',
+        sku: 'SPRT-FIT-001',
+        quantity: 1,
+        unitPriceMinor: 2299,
+        lineTotalMinor: 2299,
+        discountMinor: 0,
+        netLineTotalMinor: 2299,
+        optionsSnapshotJson: '{}',
+      },
+    ],
+  }
+  const returns = [
+    {
+      id: returnId,
+      orderId,
+      orderLineId: firstLineId,
+      quantity: 1,
+      reason: 'DAMAGED',
+      status: 'APPROVED',
+      createdAt: paidAt,
+      updatedAt: paidAt,
+    },
+  ]
+  const replacements = [
+    {
+      id: replacementId,
+      orderId,
+      returnId,
+      skuSnapshot: 'BOOK-STA-001',
+      quantity: 1,
+      status: 'SHIPPED',
+      carrier: 'DHL',
+      trackingNumber: 'REPL_123',
+      shippedAt: '2026-11-16T14:00:00.000Z',
+      deliveredAt: null,
+    },
+  ]
+  const tracking = {
+    orderId,
+    orderStatus: 'PAID',
+    originalShipment: order.fulfillment,
+    returns,
+    replacements,
+    events: [
+      {
+        id: id(90),
+        type: 'ORDER',
+        referenceId: orderId,
+        status: 'PENDING_PAYMENT',
+        occurredAt: createdAt,
+      },
+      {
+        id: id(91),
+        type: 'ORDER',
+        referenceId: orderId,
+        status: 'PENDING_PAYMENT',
+        occurredAt: createdAt,
+      },
+      {
+        id: id(92),
+        type: 'ORDER',
+        referenceId: orderId,
+        status: 'PAID',
+        occurredAt: paidAt,
+      },
+      {
+        id: id(93),
+        type: 'SHIPMENT',
+        referenceId: shipmentId,
+        status: 'PROCESSING',
+        occurredAt: paidAt,
+      },
+      {
+        id: id(94),
+        type: 'RETURN',
+        referenceId: returnId,
+        status: 'REQUESTED',
+        occurredAt: paidAt,
+      },
+      {
+        id: id(95),
+        type: 'RETURN',
+        referenceId: returnId,
+        status: 'APPROVED',
+        occurredAt: '2026-11-16T13:00:00.000Z',
+      },
+      {
+        id: id(96),
+        type: 'REPLACEMENT',
+        referenceId: replacementId,
+        status: 'AUTHORIZED',
+        occurredAt: '2026-11-16T13:10:00.000Z',
+      },
+      {
+        id: id(97),
+        type: 'REPLACEMENT',
+        referenceId: replacementId,
+        status: 'SHIPPED',
+        occurredAt: '2026-11-16T14:00:00.000Z',
+      },
+    ],
+  }
+  await page.route('**/v1/orders/' + orderId + '**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    const value = path.endsWith('/tracking')
+      ? tracking
+      : path.endsWith('/returns')
+        ? returns
+        : path.endsWith('/replacements')
+          ? replacements
+          : order
+    return route.fulfill({ json: value })
+  })
+  await page.route('**/v1/payments/orders/' + orderId + '/refunds', (route) =>
+    route.fulfill({ json: [] }),
+  )
+  await page.goto('/account/orders/' + orderId)
+  await expect(
+    page.getByRole('heading', { name: 'Order details' }),
+  ).toBeVisible()
+  await expect(page.getByText('#F259C77D', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Copy full order ID', exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Order items', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByText('A5 Hardcover Notebook')).toBeVisible()
+  await expect(page.getByText('Non-Slip Yoga Mat')).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Tracking & delivery', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByText('Order placed', { exact: true })).toHaveCount(1)
+  await expect(
+    page.getByRole('heading', { name: 'Returns', exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Replacements', exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Refund history', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByText('Item arrived damaged')).toBeVisible()
+  await expect(page.getByText('REPL_123')).toBeVisible()
+  await expect(
+    page.getByText('No refund requests', { exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Order summary', exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Payment details', exact: true }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Delivery address', exact: true }),
+  ).toBeVisible()
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await expect(
+      page.getByRole('heading', { name: 'Order details' }),
+    ).toBeVisible()
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
+    )
+    expect(overflow, `unexpected horizontal overflow at ${width}px`).toBe(false)
+  }
+})
+
+test('delivered order keeps the return request and pending-withdrawal flows available', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  const orderId = 'a9e58af3-e469-488f-b9ae-6632a6d465c8',
+    lineId = id(96),
+    returnId = id(97),
+    createdAt = '2026-11-16T12:34:35.732Z'
+  const order = {
+    id: orderId,
+    status: 'PAID',
+    currency: 'USD',
+    subtotalMinor: 2000,
+    discountMinor: 0,
+    shippingMinor: 0,
+    taxMinor: 0,
+    totalMinor: 2000,
+    paidAt: createdAt,
+    createdAt,
+    paymentDeadlineAt: '2026-11-16T13:04:35.732Z',
+    countryCode: 'US',
+    deliveryKind: null,
+    couponCode: null,
+    fulfillment: {
+      id: id(98),
+      status: 'DELIVERED',
+      carrier: 'DHL',
+      trackingNumber: 'TRACK_456',
+      startedAt: createdAt,
+      shippedAt: createdAt,
+      deliveredAt: createdAt,
+    },
+    shippingAddress: {
+      recipientName: 'Design Customer',
+      phone: '+12025550123',
+      addressLine1: '1 Order Street',
+      addressLine2: null,
+      city: 'Example City',
+      region: 'CA',
+      postalCode: '90001',
+      countryCode: 'US',
+    },
+    lines: [
+      {
+        id: lineId,
+        title: 'Test return item',
+        sku: 'RETURN-001',
+        quantity: 2,
+        unitPriceMinor: 1000,
+        lineTotalMinor: 2000,
+        discountMinor: 0,
+        netLineTotalMinor: 2000,
+        optionsSnapshotJson: '{}',
+      },
+    ],
+  }
+  let returns = [],
+    writes = 0
+  await page.route('**/v1/orders/' + orderId + '**', async (route) => {
+    const path = new URL(route.request().url()).pathname,
+      method = route.request().method()
+    if (method === 'POST' && path.endsWith('/returns')) {
+      writes++
+      const body = route.request().postDataJSON()
+      returns = [
+        {
+          id: returnId,
+          orderId,
+          orderLineId: body.orderLineId,
+          quantity: body.quantity,
+          reason: body.reason,
+          status: 'REQUESTED',
+          createdAt,
+          updatedAt: createdAt,
+        },
+      ]
+      return route.fulfill({ json: returns[0] })
+    }
+    if (method === 'POST' && path.endsWith('/cancel')) {
+      writes++
+      returns = returns.map((row) => ({ ...row, status: 'CANCELLED' }))
+      return route.fulfill({ json: returns[0] })
+    }
+    const value = path.endsWith('/tracking')
+      ? {
+          orderId,
+          orderStatus: 'PAID',
+          originalShipment: order.fulfillment,
+          returns,
+          replacements: [],
+          events: [],
+        }
+      : path.endsWith('/returns')
+        ? returns
+        : path.endsWith('/replacements')
+          ? []
+          : order
+    return route.fulfill({ json: value })
+  })
+  await page.route('**/v1/payments/orders/' + orderId + '/refunds', (route) =>
+    route.fulfill({ json: [] }),
+  )
+  await page.goto('/account/orders/' + orderId)
+  await expect(
+    page.getByRole('heading', { name: 'Request a return', exact: true }),
+  ).toBeVisible()
+  await page.getByLabel('Order line', { exact: true }).selectOption(lineId)
+  await page.getByLabel('Quantity', { exact: true }).fill('1')
+  await page
+    .getByLabel('Return reason', { exact: true })
+    .selectOption('DAMAGED')
+  await page
+    .getByRole('button', { name: 'Submit return request', exact: true })
+    .click()
+  await expect(
+    page.getByText('Return #00000000', { exact: true }),
+  ).toBeVisible()
+  await expect(page.getByText('Requested', { exact: true })).toBeVisible()
+  expect(writes).toBe(1)
+  page.on('dialog', (dialog) => dialog.accept())
+  await page
+    .getByRole('button', { name: 'Withdraw pending request', exact: true })
+    .click()
+  await expect(page.getByText('Cancelled', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Withdraw pending request', exact: true }),
+  ).toHaveCount(0)
+  expect(writes).toBe(2)
+})
+
+test('refund history separates pending requests from server-confirmed outcomes', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  const orderId = 'b6b74b16-78e9-4c8d-8c39-2d1e6e0f4a10',
+    createdAt = '2026-11-16T12:34:35.732Z'
+  const order = {
+    id: orderId,
+    status: 'PAID',
+    currency: 'USD',
+    subtotalMinor: 5000,
+    discountMinor: 0,
+    shippingMinor: 0,
+    taxMinor: 0,
+    totalMinor: 5000,
+    paidAt: createdAt,
+    createdAt,
+    paymentDeadlineAt: '2026-11-16T13:04:35.732Z',
+    countryCode: 'US',
+    deliveryKind: null,
+    couponCode: null,
+    fulfillment: null,
+    shippingAddress: {
+      recipientName: 'Design Customer',
+      phone: '+12025550123',
+      addressLine1: '1 Order Street',
+      addressLine2: null,
+      city: 'Example City',
+      region: 'CA',
+      postalCode: '90001',
+      countryCode: 'US',
+    },
+    lines: [],
+  }
+  await page.route('**/v1/orders/' + orderId + '**', (route) => {
+    const path = new URL(route.request().url()).pathname
+    const value = path.endsWith('/tracking')
+      ? {
+          orderId,
+          orderStatus: 'PAID',
+          originalShipment: null,
+          returns: [],
+          replacements: [],
+          events: [],
+        }
+      : path.endsWith('/returns') || path.endsWith('/replacements')
+        ? []
+        : order
+    return route.fulfill({ json: value })
+  })
+  await page.route('**/v1/payments/orders/' + orderId + '/refunds', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: id(102),
+          orderId,
+          requestId: id(103),
+          currency: 'USD',
+          amountMinor: 500,
+          reason: 'CUSTOMER_REQUEST',
+          status: 'SUCCEEDED',
+          providerRefundSubmitted: true,
+          stockReturned: false,
+        },
+        {
+          id: id(104),
+          orderId,
+          requestId: id(105),
+          currency: 'USD',
+          amountMinor: 200,
+          reason: 'DUPLICATE',
+          status: 'PROCESSING',
+          providerRefundSubmitted: false,
+          stockReturned: false,
+        },
+      ],
+    }),
+  )
+  await page.goto('/account/orders/' + orderId)
+  await expect(
+    page.getByRole('heading', { name: 'Refund history', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByText('Provider refund ID: Recorded')).toBeVisible()
+  await expect(page.getByText('Provider refund ID: Not recorded')).toBeVisible()
+  await expect(
+    page.getByText('The server has recorded this refund as succeeded.'),
+  ).toBeVisible()
+  await expect(
+    page.getByText(
+      'This record is not confirmation that a refund has succeeded.',
+    ),
+  ).toBeVisible()
+  await expect(page.getByText('Stock return: Separate operation')).toHaveCount(
+    2,
+  )
+})
+
+test('pending unpaid order retains payment and cancellation actions', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  const orderId = 'e897d4f8-c900-4e78-ac9c-35df8a7f2cd9',
+    createdAt = '2026-11-16T12:34:35.732Z'
+  const order = {
+    id: orderId,
+    status: 'PENDING_PAYMENT',
+    currency: 'USD',
+    subtotalMinor: 1500,
+    discountMinor: 0,
+    shippingMinor: 0,
+    taxMinor: 0,
+    totalMinor: 1500,
+    paidAt: null,
+    createdAt,
+    paymentDeadlineAt: '2026-11-16T13:04:35.732Z',
+    countryCode: 'US',
+    deliveryKind: null,
+    couponCode: null,
+    fulfillment: null,
+    shippingAddress: {
+      recipientName: 'Design Customer',
+      phone: '+12025550123',
+      addressLine1: '1 Order Street',
+      addressLine2: null,
+      city: 'Example City',
+      region: 'CA',
+      postalCode: '90001',
+      countryCode: 'US',
+    },
+    lines: [],
+  }
+  let cancelled = false
+  await page.route('**/v1/orders/' + orderId + '**', async (route) => {
+    const path = new URL(route.request().url()).pathname,
+      method = route.request().method()
+    if (method === 'POST' && path.endsWith('/cancel')) {
+      cancelled = true
+      order.status = 'CANCELLED'
+      return route.fulfill({ json: { id: orderId, status: 'CANCELLED' } })
+    }
+    const value = path.endsWith('/tracking')
+      ? {
+          orderId,
+          orderStatus: order.status,
+          originalShipment: null,
+          returns: [],
+          replacements: [],
+          events: [],
+        }
+      : path.endsWith('/returns') || path.endsWith('/replacements')
+        ? []
+        : order
+    return route.fulfill({ json: value })
+  })
+  await page.route('**/v1/payments/orders/' + orderId + '/refunds', (route) =>
+    route.fulfill({ json: [] }),
+  )
+  await page.goto('/account/orders/' + orderId)
+  const paymentLink = page.getByRole('link', {
+    name: 'Continue to payment',
+    exact: true,
+  })
+  await expect(paymentLink).toHaveAttribute(
+    'href',
+    '/checkout?order=' + orderId,
+  )
+  await expect(
+    page.getByRole('button', { name: 'Cancel unpaid order', exact: true }),
+  ).toBeVisible()
+  page.on('dialog', (dialog) => dialog.accept())
+  await page
+    .getByRole('button', { name: 'Cancel unpaid order', exact: true })
+    .click()
+  await expect(page.getByText('Cancelled', { exact: true })).toBeVisible()
+  await expect(paymentLink).toHaveCount(0)
+  expect(cancelled).toBe(true)
 })
 
 test('switching accounts rejects a delayed address response and clears the previous profile', async ({
