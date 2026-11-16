@@ -3836,3 +3836,295 @@ test('order history pagination only appears for multiple pages and loads the sel
   await expect(pagination.getByRole('button', { name: 'Next' })).toBeDisabled()
   expect(requestedPages).toEqual([1, 2])
 })
+
+function savedAddressFixture(number, overrides = {}) {
+  const now = new Date('2026-11-17T00:00:00.000Z').toISOString()
+  return {
+    id: id(number),
+    label: 'Home',
+    recipientName: 'Design Customer',
+    phone: '+8801740117690',
+    addressLine1: '4882 Maple Lane',
+    addressLine2: 'BARI Campus',
+    city: 'Gazipur',
+    region: 'Dhaka',
+    postalCode: '1701',
+    countryCode: 'BD',
+    isDefault: true,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  }
+}
+
+async function mockSavedAddresses(page, initialAddresses) {
+  let addresses = initialAddresses.map((address) => ({ ...address }))
+  const writes = []
+  await page.route('**/v1/account/addresses**', async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    const method = request.method()
+    if (path === '/v1/account/addresses' && method === 'GET')
+      return route.fulfill({
+        json: { items: addresses, count: addresses.length },
+      })
+
+    if (path === '/v1/account/addresses' && method === 'POST') {
+      const body = request.postDataJSON()
+      writes.push({ method, path, body })
+      const created = savedAddressFixture(190 + addresses.length, {
+        ...body,
+        isDefault: Boolean(body.isDefault) || addresses.length === 0,
+      })
+      if (created.isDefault)
+        addresses = addresses.map((address) => ({
+          ...address,
+          isDefault: false,
+        }))
+      addresses = [...addresses, created]
+      return route.fulfill({ status: 201, json: created })
+    }
+
+    const addressId = path.split('/').at(-1)
+    const current = addresses.find((address) => address.id === addressId)
+    if (!current)
+      return route.fulfill({
+        status: 404,
+        json: { message: 'Address not found in controlled test.' },
+      })
+
+    if (method === 'PATCH') {
+      const body = request.postDataJSON()
+      writes.push({ method, path, body })
+      if (body.isDefault) {
+        addresses = addresses.map((address) => ({
+          ...address,
+          isDefault: address.id === addressId,
+        }))
+      } else {
+        addresses = addresses.map((address) =>
+          address.id === addressId
+            ? { ...address, ...body, updatedAt: new Date().toISOString() }
+            : address,
+        )
+      }
+      return route.fulfill({
+        json: addresses.find((address) => address.id === addressId),
+      })
+    }
+
+    if (method === 'DELETE') {
+      writes.push({ method, path, body: null })
+      const wasDefault = current.isDefault
+      addresses = addresses.filter((address) => address.id !== addressId)
+      if (wasDefault && addresses.length)
+        addresses = addresses.map((address, index) => ({
+          ...address,
+          isDefault: index === 0,
+        }))
+      return route.fulfill({ json: { deleted: true } })
+    }
+
+    return route.fulfill({
+      status: 405,
+      json: { message: 'Unsupported controlled address operation.' },
+    })
+  })
+  return {
+    addresses: () => addresses,
+    writes: () => writes,
+  }
+}
+
+for (const width of [390, 1440]) {
+  test(`saved address cards are responsive, readable and overflow-free at ${width}px`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await mock(page, { authenticated: true })
+    await mockSavedAddresses(page, [
+      savedAddressFixture(171),
+      savedAddressFixture(172, {
+        label: 'Office',
+        recipientName: 'Office Recipient',
+        addressLine1: '12 Main Road',
+        addressLine2: '',
+        city: 'Dhaka',
+        region: '',
+        postalCode: '1207',
+        isDefault: false,
+      }),
+    ])
+    await page.goto('/account/addresses')
+
+    await expect(
+      page.getByRole('heading', { name: 'Saved addresses', exact: true }),
+    ).toBeVisible()
+    const cards = page.locator('main article')
+    await expect(cards).toHaveCount(2)
+    await expect(cards.first()).toContainText('Default')
+    await expect(cards.first()).toContainText('Bangladesh')
+    await expect(cards.nth(1)).toContainText('Office')
+
+    const first = await cards.nth(0).boundingBox()
+    const second = await cards.nth(1).boundingBox()
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+    if (width < 640) expect(second.y).toBeGreaterThan(first.y)
+    else expect(Math.abs(second.y - first.y)).toBeLessThan(8)
+
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: info.outputPath(`saved-addresses-${width}.png`),
+      fullPage: true,
+    })
+  })
+}
+
+test('saved address inline form creates and edits addresses through the existing API contract', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  const server = await mockSavedAddresses(page, [savedAddressFixture(173)])
+  await page.goto('/account/addresses')
+
+  await page.getByRole('button', { name: 'Add address', exact: true }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Add a delivery address', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  await page.getByLabel('Address label', { exact: true }).fill('Office')
+  await page
+    .getByLabel('Recipient name', { exact: true })
+    .fill('Office Customer')
+  await page.getByLabel('Phone number', { exact: true }).fill('+8801740117691')
+  await page.getByLabel('Street address', { exact: true }).fill('12 Main Road')
+  await page.getByLabel('City', { exact: true }).fill('Dhaka')
+  await page.getByLabel('Region / state', { exact: true }).fill('Dhaka')
+  await page.getByLabel('Postal code', { exact: true }).fill('1207')
+  await page.getByLabel('Country code (ISO)', { exact: true }).fill('bd')
+  await page.getByRole('button', { name: 'Save address', exact: true }).click()
+
+  await expect(
+    page.locator('main article').filter({ hasText: 'Office' }),
+  ).toContainText('Office Customer')
+  const create = server.writes().find((write) => write.method === 'POST')
+  expect(create.path).toBe('/v1/account/addresses')
+  expect(create.body.countryCode).toBe('BD')
+  expect(create.body.phone).toBe('+8801740117691')
+  expect(create.body.isDefault).toBe(false)
+
+  const officeCard = page.locator('main article').filter({ hasText: 'Office' })
+  await officeCard.getByRole('button', { name: 'Edit address' }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Edit delivery address', exact: true }),
+  ).toBeVisible()
+  await page
+    .getByLabel('Recipient name', { exact: true })
+    .fill('Updated Office Customer')
+  await page.getByRole('button', { name: 'Save address', exact: true }).click()
+
+  await expect(officeCard).toContainText('Updated Office Customer')
+  const update = server.writes().find((write) => write.method === 'PATCH')
+  expect(update.path).toBe('/v1/account/addresses/' + id(191))
+  expect(update.body.recipientName).toBe('Updated Office Customer')
+  expect(update.body.countryCode).toBe('BD')
+})
+
+test('saved address default and delete actions remain server-authoritative', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  const server = await mockSavedAddresses(page, [
+    savedAddressFixture(174),
+    savedAddressFixture(175, {
+      label: 'Office',
+      recipientName: 'Office Recipient',
+      addressLine1: '12 Main Road',
+      addressLine2: '',
+      city: 'Dhaka',
+      region: 'Dhaka',
+      postalCode: '1207',
+      isDefault: false,
+    }),
+  ])
+  await page.goto('/account/addresses')
+
+  const officeCard = page.locator('main article').filter({ hasText: 'Office' })
+  await officeCard.getByRole('button', { name: 'Make default' }).click()
+  await expect(officeCard).toContainText('Default')
+  expect(server.writes()[0]).toMatchObject({
+    method: 'PATCH',
+    path: '/v1/account/addresses/' + id(175),
+    body: { isDefault: true },
+  })
+
+  const homeCard = page.locator('main article').filter({ hasText: 'Home' })
+  page.on('dialog', (dialog) => dialog.accept())
+  await homeCard.getByRole('button', { name: 'Delete address' }).click()
+  await expect(homeCard).toHaveCount(0)
+  expect(server.writes().at(-1)).toMatchObject({
+    method: 'DELETE',
+    path: '/v1/account/addresses/' + id(174),
+  })
+  await expect(officeCard).toContainText('Default')
+})
+
+test('a single saved address uses the full available content width', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await mock(page, { authenticated: true })
+  await mockSavedAddresses(page, [savedAddressFixture(176)])
+  await page.goto('/account/addresses')
+  const card = page.locator('main article').first()
+  await expect(card).toBeVisible()
+  const cardBox = await card.boundingBox()
+  const gridBox = await card.locator('..').boundingBox()
+  expect(cardBox).not.toBeNull()
+  expect(gridBox).not.toBeNull()
+  expect(Math.abs(cardBox.width - gridBox.width)).toBeLessThan(2)
+})
+
+test('empty address book opens the inline form and respects the ten-address limit', async ({
+  page,
+}) => {
+  await mock(page, { authenticated: true })
+  await mockSavedAddresses(page, [])
+  await page.goto('/account/addresses')
+  await expect(
+    page.getByText('No saved addresses yet', { exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole('button', { name: 'Add your first address', exact: true })
+    .click()
+  await expect(
+    page.getByRole('heading', { name: 'Add a delivery address', exact: true }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Add a delivery address', exact: true }),
+  ).toHaveCount(0)
+
+  const tenAddresses = Array.from({ length: 10 }, (_, index) =>
+    savedAddressFixture(200 + index, {
+      label: index === 0 ? 'Home' : `Saved ${index + 1}`,
+      isDefault: index === 0,
+    }),
+  )
+  await page.unrouteAll({ behavior: 'wait' })
+  await mock(page, { authenticated: true })
+  await mockSavedAddresses(page, tenAddresses)
+  await page.goto('/account/addresses')
+  await expect(
+    page.getByText('You have reached the 10-address limit.', { exact: false }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Add address', exact: true }),
+  ).toBeDisabled()
+})
