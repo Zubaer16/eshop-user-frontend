@@ -1,5 +1,13 @@
 # Storefront browser regressions
 
+## Account sidebar on order tracking - 2026-11-16
+
+The tracking route now uses the existing AccountShell in its route layout. Account navigation surrounds both tracking content and its loading fallback. The existing active-link matching marks Track your order as current. Desktop retains the left sidebar and mobile retains the horizontal account navigation. The existing /track URL, order query handling and authenticated owned-order API flow are preserved.
+
+Project verification, type checking, lint, production build and all 64 production-browser tests passed with zero retries or skips. Two new regressions cover account-to-tracking navigation, active state, direct reload, return navigation and viewport overflow at 390px and 1440px.
+
+User Frontend source changed. The owner requested publication on main on 2026-11-16. Production deployment status is unverified.
+
 ## Initial category rendering - 2026-11-16
 
 Public categories now load through the existing server catalog reader with a thirty-second revalidation window. The root layout supplies the validated snapshot to CatalogProvider, so homepage tiles, navigation and the category directory have data in the initial HTML. The provider seeds the existing public browser cache and reuses fresh data during hydration. A stale snapshot stays visible during background reads and failed refreshes, with the existing retry control available. An unavailable server read falls back to client loading.

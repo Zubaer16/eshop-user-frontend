@@ -1005,6 +1005,45 @@ for (const path of ['/account', '/checkout', '/wishlist', '/cart']) {
   })
 }
 
+for (const width of [390, 1440]) {
+  test(`order tracking retains account navigation at ${width}px after navigation and direct reload`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 1000 })
+    await mock(page, { authenticated: true })
+    await page.goto('/account')
+    const navigation = page.getByRole('navigation', {
+      name: 'Account navigation',
+    })
+    await navigation
+      .getByRole('link', { name: 'Track your order', exact: true })
+      .click()
+    await expect(page).toHaveURL(/\/track$/)
+    await expect(navigation).toBeVisible()
+    await expect(navigation.locator('a[aria-current="page"]')).toHaveAttribute(
+      'href',
+      '/track',
+    )
+    await expect(page.getByLabel('Order UUID', { exact: true })).toBeVisible()
+    await page.reload()
+    await expect(navigation).toBeVisible()
+    await expect(navigation.locator('a[aria-current="page"]')).toHaveAttribute(
+      'href',
+      '/track',
+    )
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true)
+    await navigation
+      .getByRole('link', { name: 'Saved addresses', exact: true })
+      .click()
+    await expect(page).toHaveURL(/\/account\/addresses$/)
+    await expect(navigation).toBeVisible()
+  })
+}
+
 test('production product rendering returns 200 and missing products return 404', async ({
   request,
 }) => {

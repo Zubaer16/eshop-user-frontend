@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import { AccountShell } from '@/components/account/account-shell'
 
 // Cart and private account surfaces remain excluded from indexing.
 export const metadata: Metadata = {
@@ -9,5 +10,5 @@ export const metadata: Metadata = {
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
-  return children
+  return <AccountShell>{children}</AccountShell>
 }
